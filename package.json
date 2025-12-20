@@ -1,0 +1,45 @@
+{
+	"name": "7otion-orm",
+	"version": "0.0.0",
+	"description": "A modern, type-safe, database-agnostic ORM for TypeScript with Active Record pattern",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"scripts": {
+		"build": "tsc",
+		"watch": "tsc --watch",
+		"format": "bunx prettier --write '**/*.{js,jsx,ts,tsx,json,css}' --ignore-path .prettierignore",
+		"clean": "rm -rf dist"
+	},
+	"keywords": [
+		"orm",
+		"typescript",
+		"database",
+		"tauri",
+		"sqlite",
+		"active-record",
+		"query-builder",
+		"relationships"
+	],
+	"author": "Burak Kartal",
+	"license": "MIT",
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE"
+	],
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/7otion/7otion-orm"
+	},
+	"devDependencies": {
+		"typescript": "^5.0.0"
+	},
+	"peerDependencies": {
+		"@tauri-apps/plugin-sql": "^2.0.0"
+	},
+	"peerDependenciesMeta": {
+		"@tauri-apps/plugin-sql": {
+			"optional": true
+		}
+	}
+}
