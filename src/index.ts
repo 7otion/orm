@@ -8,16 +8,18 @@
  * @license MIT
  */
 
-export { Model, type ModelConstructor } from '@/model';
-export { ORM, type ORMConfig } from '@/orm';
-export type { DatabaseAdapter } from '@/adapter';
-export type { SqlDialect } from '@/dialect';
-export { QueryBuilder } from '@/query-builder';
+export { Model, type ModelConstructor } from './model';
+export { ORM, type ORMConfig } from './orm';
+export type { DatabaseAdapter } from './adapter';
+export type { SqlDialect } from './dialect';
+export { QueryBuilder } from './query-builder';
+export { getRepository, type IRepository } from './repository';
 
-export { Relationship } from '@/relationships/relationship';
-export { HasOne } from '@/relationships/hasOne';
-export { HasMany } from '@/relationships/hasMany';
-export { BelongsToMany } from '@/relationships/belongsToMany';
+export { Relationship } from './relationships/relationship';
+export { HasOne } from './relationships/hasOne';
+export { HasMany } from './relationships/hasMany';
+export { BelongsToMany } from './relationships/belongsToMany';
+export { MorphTo, type MorphToConfig } from './relationships/morphTo';
 
 export type {
 	DatabaseRow,
@@ -32,10 +34,10 @@ export type {
 	CompiledQuery,
 	TimestampConfig,
 	ModelConfig,
-} from '@/types';
+} from './types';
 
-export { SQLiteDialect } from '@/plugins/dialects/sqlite';
+export { SQLiteDialect } from './plugins/dialects/sqlite';
 export {
 	TauriAdapter,
 	type TauriAdapterConfig,
-} from '@/plugins/adapters/tauri';
+} from './plugins/adapters/tauri';

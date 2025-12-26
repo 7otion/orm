@@ -2,74 +2,33 @@
  * HasOne Relationship
  *
  * Represents a one-to-one relationship.
- *
- * Example:
- * class User extends Model {
- *   static defineRelationships() {
- *     return {
- *       profile: new HasOne(this, Profile, 'user_id')
- *     };
- *   }
- *
- *   get profile() {
- *     return this.getWithSuspense<Profile | null>('profile');
- *   }
- * }
- *
- * Usage:
- * const users = await User.query().with('profile').get();
- * users[0].profile  // Eager loaded
- *
- * const user = await User.find(1);
- * user.profile  // Lazy loaded automatically
  */
 
-import { Relationship } from '@/relationships/relationship';
-import { QueryBuilder } from '@/query-builder';
-import type { Model } from '@/model';
+import { Relationship } from './relationship';
+import { QueryBuilder } from '../query-builder';
+import type { Model } from '../model';
 
 export class HasOne<T extends Model<T>> extends Relationship<T> {
 	/**
-	 * Get a query builder for the related model
-	 * Automatically adds WHERE clause for the foreign key
-	 *
-	 * Example:
-	 * user.profile() returns a QueryBuilder with:
-	 * WHERE user_id = <user's id>
+	 * Get the related model for a parent instance
+	 * Queries with: WHERE foreign_key = parent's local key value LIMIT 1
 	 */
-	getQuery(): QueryBuilder<T> {
-		// Get table name from related model
+	async get(parent: Model<any>): Promise<T | null> {
 		const config = (this.related as any).config;
 		const tableName = config.table;
 
-		// Create query builder for related model
 		const query = new QueryBuilder(this.related, tableName);
-
-		// Add constraint: WHERE foreign_key = parent's local key value
-		const localValue = (this.parent as any)[this.localKey];
+		const localValue = this.getParentKeyValue(parent);
 		query.where(this.foreignKey, localValue);
-
-		return query;
+		return query.first();
 	}
 
-	/**
-	 * Eager load HasOne relationships for multiple models
-	 *
-	 * Strategy:
-	 * 1. Collect all parent IDs
-	 * 2. Query related records WHERE foreign_key IN (parent_ids)
-	 * 3. Map related records back to parent models
-	 *
-	 * This turns N+1 queries into 1 query
-	 */
 	async eagerLoadFor(
 		models: Model<any>[],
 		relationName: string,
 	): Promise<void> {
-		// Collect all parent local key values
 		const localValues = models.map(model => (model as any)[this.localKey]);
 
-		// Query related records with IN clause
 		const config = (this.related as any).config;
 		const tableName = config.table;
 		const query = new QueryBuilder(this.related, tableName);
@@ -93,20 +52,5 @@ export class HasOne<T extends Model<T>> extends Relationship<T> {
 			const related = relatedMap.get(localValue) || null;
 			(model as any)[`_${relationName}`] = related;
 		}
-	}
-
-	/**
-	 * Get the first (and only) related model
-	 * Convenience method for HasOne since it returns a single model
-	 */
-	async first(): Promise<T | null> {
-		return this.getQuery().first();
-	}
-
-	/**
-	 * Get the related model (same as first() for HasOne)
-	 */
-	async get(): Promise<T | null> {
-		return this.first();
 	}
 }

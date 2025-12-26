@@ -20,7 +20,7 @@
  * - Date functions differ: SQLite uses datetime('now') vs PostgreSQL uses NOW()
  */
 
-import type { CompiledQuery, QueryStructure, QueryValue } from '@/types';
+import type { CompiledQuery, QueryStructure, QueryValue } from './types';
 
 export interface SqlDialect {
 	/**

@@ -11,12 +11,10 @@
  *   adapter: new MyAdapter(db),
  *   dialect: new SQLiteDialect()
  * });
- *
- * Then all models access the same ORM instance through ORM.getInstance()
  */
 
-import type { DatabaseAdapter } from '@/adapter';
-import type { SqlDialect } from '@/dialect';
+import type { DatabaseAdapter } from './adapter';
+import type { SqlDialect } from './dialect';
 
 export interface ORMConfig {
 	adapter: DatabaseAdapter;
@@ -40,16 +38,9 @@ export class ORM {
 	private constructor(config: ORMConfig) {
 		this.adapter = config.adapter;
 		this.dialect = config.dialect;
-		// Enable write queue for databases that don't support concurrent writes (SQLite)
 		this.enableWriteQueue = config.enableWriteQueue ?? false;
 	}
 
-	/**
-	 * Initialize the ORM with an adapter and dialect
-	 * Must be called once before using any models
-	 *
-	 * @param config - ORM configuration
-	 */
 	static initialize(config: ORMConfig): void {
 		if (ORM.instance) {
 			throw new Error('ORM is already initialized.');
@@ -57,10 +48,6 @@ export class ORM {
 		ORM.instance = new ORM(config);
 	}
 
-	/**
-	 * Get the ORM singleton instance
-	 * Throws if not initialized
-	 */
 	static getInstance(): ORM {
 		if (!ORM.instance) {
 			throw new Error(
@@ -70,16 +57,10 @@ export class ORM {
 		return ORM.instance;
 	}
 
-	/**
-	 * Get the database adapter
-	 */
 	getAdapter(): DatabaseAdapter {
 		return this.adapter;
 	}
 
-	/**
-	 * Get the SQL dialect
-	 */
 	getDialect(): SqlDialect {
 		return this.dialect;
 	}

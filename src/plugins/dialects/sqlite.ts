@@ -1,11 +1,5 @@
-/**
- * SQLiteDialect
- *
- * Implements SqlDialect for SQLite databases.
- */
-
-import type { SqlDialect } from '@/dialect';
-import type { CompiledQuery, QueryStructure, QueryValue } from '@/types';
+import type { SqlDialect } from '../../dialect';
+import type { CompiledQuery, QueryStructure, QueryValue } from '../../types';
 
 export class SQLiteDialect implements SqlDialect {
 	/**
@@ -76,9 +70,14 @@ export class SQLiteDialect implements SqlDialect {
 		// ORDER BY clause
 		if (query.orders.length > 0) {
 			sql += ' ORDER BY ';
-			const orderClauses = query.orders.map(
-				order => `${order.column} ${order.direction.toUpperCase()}`,
-			);
+			const orderClauses = query.orders.map(order => {
+				if (order.direction === 'raw') {
+					// Raw ORDER BY - use as-is
+					return order.column;
+				}
+				// Escape column identifier for reserved keywords
+				return `${this.escapeIdentifier(order.column)} ${order.direction.toUpperCase()}`;
+			});
 			sql += orderClauses.join(', ');
 		}
 
@@ -101,7 +100,7 @@ export class SQLiteDialect implements SqlDialect {
 	 * Compile an INSERT statement
 	 *
 	 * Example output:
-	 * INSERT INTO users (name, email, created_at) VALUES (?, ?, ?)
+	 * INSERT INTO users ("name", "email", "created_at") VALUES (?, ?, ?)
 	 */
 	compileInsert(
 		table: string,
@@ -110,7 +109,10 @@ export class SQLiteDialect implements SqlDialect {
 		const columns = Object.keys(data);
 		const values = Object.values(data);
 
-		const columnList = columns.join(', ');
+		// Escape column names to handle reserved keywords
+		const columnList = columns
+			.map(col => this.escapeIdentifier(col))
+			.join(', ');
 		const placeholders = columns.map(() => '?').join(', ');
 
 		const sql = `INSERT INTO ${table} (${columnList}) VALUES (${placeholders})`;
@@ -122,7 +124,7 @@ export class SQLiteDialect implements SqlDialect {
 	 * Compile an UPDATE statement
 	 *
 	 * Example output:
-	 * UPDATE users SET name = ?, email = ?, updated_at = ? WHERE id = ?
+	 * UPDATE users SET "name" = ?, "email" = ?, "updated_at" = ? WHERE "id" = ?
 	 */
 	compileUpdate(
 		table: string,
@@ -133,9 +135,12 @@ export class SQLiteDialect implements SqlDialect {
 		const columns = Object.keys(data);
 		const values = Object.values(data);
 
-		const setClauses = columns.map(col => `${col} = ?`).join(', ');
+		// Escape column names in SET clause
+		const setClauses = columns
+			.map(col => `${this.escapeIdentifier(col)} = ?`)
+			.join(', ');
 
-		const sql = `UPDATE ${table} SET ${setClauses} WHERE ${primaryKey} = ?`;
+		const sql = `UPDATE ${table} SET ${setClauses} WHERE ${this.escapeIdentifier(primaryKey)} = ?`;
 		const bindings = [...values, id];
 
 		return { sql, bindings };
@@ -145,14 +150,14 @@ export class SQLiteDialect implements SqlDialect {
 	 * Compile a DELETE statement
 	 *
 	 * Example output:
-	 * DELETE FROM users WHERE id = ?
+	 * DELETE FROM users WHERE "id" = ?
 	 */
 	compileDelete(
 		table: string,
 		primaryKey: string,
 		id: QueryValue,
 	): CompiledQuery {
-		const sql = `DELETE FROM ${table} WHERE ${primaryKey} = ?`;
+		const sql = `DELETE FROM ${table} WHERE ${this.escapeIdentifier(primaryKey)} = ?`;
 		const bindings = [id];
 
 		return { sql, bindings };
@@ -165,5 +170,26 @@ export class SQLiteDialect implements SqlDialect {
 	 */
 	getCurrentTimestamp(): string {
 		return "datetime('now')";
+	}
+
+	/**
+	 * Escape an identifier (table/column name) for SQLite
+	 *
+	 * Examples:
+	 * - order → "order"
+	 * - user.name → "user"."name"
+	 * - my"table → "my""table" (escapes internal quotes)
+	 */
+	private escapeIdentifier(identifier: string): string {
+		// If it contains a dot, escape each part separately
+		if (identifier.includes('.')) {
+			return identifier
+				.split('.')
+				.map(part => this.escapeIdentifier(part))
+				.join('.');
+		}
+
+		// Double any internal quotes and wrap in double quotes
+		return `"${identifier.replace(/"/g, '""')}"`;
 	}
 }

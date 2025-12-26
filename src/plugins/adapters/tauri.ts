@@ -1,5 +1,5 @@
-import type { DatabaseAdapter } from '@/adapter';
-import type { DatabaseRow, QueryValue } from '@/types';
+import type { DatabaseAdapter } from '../../adapter';
+import type { DatabaseRow, QueryValue } from '../../types';
 
 type TauriDatabase = {
 	execute(sql: string, bindValues?: unknown[]): Promise<any>;
@@ -47,9 +47,9 @@ export class TauriAdapter implements DatabaseAdapter {
 		let tauriSqlModule: TauriDatabaseModule;
 
 		try {
-			// @ts-expect-error - Optional peer dependency
+			// @ts-ignore
 			tauriSqlModule = await import('@tauri-apps/plugin-sql');
-		} catch (error) {
+		} catch (_error) {
 			throw new Error(
 				'@tauri-apps/plugin-sql is required for TauriAdapter. Install it with: npm install @tauri-apps/plugin-sql',
 			);

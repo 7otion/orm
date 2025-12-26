@@ -28,7 +28,7 @@ export type WhereOperator =
 /**
  * ORDER BY direction
  */
-export type OrderDirection = 'asc' | 'desc' | 'ASC' | 'DESC';
+export type OrderDirection = 'asc' | 'desc' | 'ASC' | 'DESC' | 'raw';
 
 /**
  * Value that can be passed to WHERE clause (includes arrays for IN clauses)

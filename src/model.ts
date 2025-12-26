@@ -2,37 +2,87 @@
  * Model Base Class - Active Record pattern with automatic relationships
  */
 
-import { QueryBuilder } from '@/query-builder';
-import { ORM } from '@/orm';
+import { QueryBuilder } from './query-builder';
+import { HasOne } from './relationships/hasOne';
+import { HasMany } from './relationships/hasMany';
+import { BelongsToMany } from './relationships/belongsToMany';
+import { MorphTo, type MorphToConfig } from './relationships/morphTo';
 
-import type { ModelConfig, QueryValue, TimestampConfig } from '@/types';
+import { RecordPersistenceMixin } from './mixins/record-persistence.mixin';
+import { ChangeStateMixin } from './mixins/change-state.mixin';
+import { RelationshipLoaderMixin } from './mixins/relationship-loader.mixin';
+
+import type { ModelConfig, QueryValue, TimestampConfig } from './types';
 
 /**
  * Type for Model constructor
  * Used by QueryBuilder and relationships to instantiate models
  */
-export interface ModelConstructor<T extends Model<T>> {
-	new (): T;
+export interface ModelConstructor<TModel extends Model<TModel>> {
+	new (): TModel;
 	config: ModelConfig;
-	defineRelationships?(): Record<string, any>;
-	query(): QueryBuilder<T>;
-	find(id: QueryValue): Promise<T | null>;
-	all(): Promise<T[]>;
-	create(data: Record<string, any>): Promise<T>;
+	getTableName(): string;
+	query(): QueryBuilder<TModel>;
+	find(id: QueryValue): Promise<TModel | null>;
+	all(): Promise<TModel[]>;
+	create(data: Record<string, any>): Promise<TModel>;
 }
 
 /**
- * Base Model class
+ * Base Model class with mixins for persistence, change tracking, and relationships
+ *
+ * Uses interface merging to include mixin methods in type definitions
  */
+export interface Model<T extends Model<T>>
+	extends RecordPersistenceMixin, ChangeStateMixin, RelationshipLoaderMixin {}
+
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export abstract class Model<T extends Model<T>> {
+	private static _relationshipsCache = new WeakMap<
+		typeof Model,
+		Record<string, any>
+	>();
+
+	/**
+	 * Define relationships for this model
+	 * Subclasses should override this method to define their relationships
+	 *
+	 * Example:
+	 * protected static defineRelationships() {
+	 *   return {
+	 *     posts: this.hasMany(Post),
+	 *     profile: this.hasOne(Profile)
+	 *   };
+	 * }
+	 */
+	protected static defineRelationships(): Record<string, any> {
+		return {};
+	}
+
+	/**
+	 * Get relationships for this model (with caching)
+	 */
+	static get relationships(): Record<string, any> {
+		// Use WeakMap to cache per-class to avoid static property inheritance issues
+		if (!Model._relationshipsCache.has(this)) {
+			Model._relationshipsCache.set(this, this.defineRelationships());
+		}
+		return Model._relationshipsCache.get(this)!;
+	}
+
 	static config: ModelConfig = {
 		primaryKey: 'id',
-		timestamps: false,
+		timestamps: true,
 	};
 
+	// @ts-ignore - Accessed by mixin methods
 	private _attributes: Record<string, any> = {};
+	// @ts-ignore - Accessed by mixin methods
 	private _original: Record<string, any> = {};
+	// @ts-ignore - Accessed by mixin methods
 	private _exists: boolean = false;
+
+	readonly relationships = {};
 
 	/**
 	 * Returns Proxy to enable natural property access and relationship getters
@@ -45,25 +95,42 @@ export abstract class Model<T extends Model<T>> {
 					return target[prop];
 				}
 
-				// Check prototype for methods and getters
-				const descriptor = Object.getOwnPropertyDescriptor(
-					Object.getPrototypeOf(target),
-					prop,
-				);
+				// Check prototype chain for methods and getters (including mixed-in methods)
+				let proto = Object.getPrototypeOf(target);
+				while (proto) {
+					const descriptor = Object.getOwnPropertyDescriptor(
+						proto,
+						prop,
+					);
 
-				// Execute getters (e.g., user.posts getter)
-				if (descriptor && descriptor.get) {
-					return descriptor.get.call(target);
-				}
+					if (descriptor) {
+						// Execute getters
+						if (descriptor.get) {
+							return descriptor.get.call(target);
+						}
 
-				// Bind methods to maintain context
-				if (descriptor && typeof descriptor.value === 'function') {
-					return target[prop].bind(target);
+						// Bind methods to maintain context
+						if (typeof descriptor.value === 'function') {
+							return descriptor.value.bind(target);
+						}
+					}
+
+					// Move up the prototype chain
+					proto = Object.getPrototypeOf(proto);
 				}
 
 				// Check instance properties (used for eager-loaded relationships via _posts, _profile)
 				if (Object.prototype.hasOwnProperty.call(target, prop)) {
 					return target[prop];
+				}
+
+				// Auto-generate relationship getters if not explicitly defined
+				// This allows accessing relationships without manually writing getters
+				const ctor = Object.getPrototypeOf(target)
+					.constructor as typeof Model;
+				const relationships = ctor.relationships;
+				if (relationships && relationships[prop as string]) {
+					return target.getWithSuspense(prop as string);
 				}
 
 				// Default: Return from _attributes (data properties like user.name, user.email)
@@ -100,16 +167,14 @@ export abstract class Model<T extends Model<T>> {
 	}
 
 	private getConfig(): Required<ModelConfig> {
-		const constructor = this.constructor as typeof Model;
+		const constructor = this.constructor as unknown as typeof Model;
 		const config = constructor.config;
 
-		// Auto-derive table name from class name if not provided
 		let tableName = config.table;
 		if (!tableName) {
 			tableName = this.deriveTableName(constructor.name);
 		}
 
-		// Merge with defaults
 		return {
 			table: tableName,
 			primaryKey: config.primaryKey || 'id',
@@ -117,26 +182,22 @@ export abstract class Model<T extends Model<T>> {
 		};
 	}
 
-	/**
-	 * User -> users, Category -> categories, BlogPost -> blog_posts
-	 */
 	private deriveTableName(className: string): string {
-		// Convert PascalCase to snake_case
 		const snakeCase = className
 			.replace(/([A-Z])/g, '_$1')
 			.toLowerCase()
 			.replace(/^_/, '');
 
-		// Pluralize (simple rules)
 		if (snakeCase.endsWith('y')) {
-			return snakeCase.slice(0, -1) + 'ies'; // Category -> categories
+			return snakeCase.slice(0, -1) + 'ies';
 		} else if (snakeCase.endsWith('s')) {
-			return snakeCase + 'es'; // Class -> classes
+			return snakeCase + 'es';
 		} else {
-			return snakeCase + 's'; // User -> users
+			return snakeCase + 's';
 		}
 	}
 
+	// @ts-ignore - Accessed by mixin methods
 	private getTimestampConfig(): TimestampConfig | null {
 		const config = this.getConfig();
 
@@ -154,354 +215,118 @@ export abstract class Model<T extends Model<T>> {
 		return config.timestamps;
 	}
 
-	/**
-	 * Insert a new record into the database
-	 *
-	 * This is called for NEW models that don't exist yet.
-	 * Automatically adds timestamps if enabled.
-	 * Write operation is queued if ORM is configured with enableWriteQueue (SQLite).
-	 *
-	 * @returns The inserted model (with ID populated)
-	 */
-	async insert(): Promise<this> {
-		const orm = ORM.getInstance();
-
-		return orm.queueWrite(async () => {
-			const dialect = orm.getDialect();
-			const adapter = orm.getAdapter();
-			const config = this.getConfig();
-			const timestampConfig = this.getTimestampConfig();
-
-			// Add timestamps if enabled
-			if (timestampConfig) {
-				const now = dialect.getCurrentTimestamp();
-				this._attributes[timestampConfig.created_at] = now;
-				this._attributes[timestampConfig.updated_at] = now;
-			}
-
-			// Compile INSERT query
-			const compiled = dialect.compileInsert(
-				config.table,
-				this._attributes,
-			);
-
-			// Execute and get inserted ID
-			const insertedId = await adapter.insert(
-				compiled.sql,
-				compiled.bindings,
-			);
-
-			// Update model with new ID
-			this._attributes[config.primaryKey] = insertedId;
-
-			// Mark as existing and sync original values
-			this._exists = true;
-			this._original = { ...this._attributes };
-
-			return this;
-		});
-	}
-
-	/**
-	 * Update an existing record in the database
-	 *
-	 * Only updates fields that have changed (dirty fields).
-	 * Automatically updates updated_at timestamp if enabled.
-	 * Write operation is queued if ORM is configured with enableWriteQueue (SQLite).
-	 *
-	 * @returns The updated model
-	 */
-	async update(): Promise<this> {
-		if (!this._exists) {
-			throw new Error(
-				'Cannot update a model that does not exist. Use insert() instead.',
-			);
+	static getTableName(): string {
+		const ModelClass = this as unknown as ModelConstructor<any>;
+		if (ModelClass.config.table) {
+			return ModelClass.config.table;
 		}
 
-		const orm = ORM.getInstance();
+		const className = (this as any).name || 'Model';
+		const snakeCase = className
+			.replace(/([A-Z])/g, '_$1')
+			.toLowerCase()
+			.replace(/^_/, '');
 
-		return orm.queueWrite(async () => {
-			const dialect = orm.getDialect();
-			const adapter = orm.getAdapter();
-			const config = this.getConfig();
-			const timestampConfig = this.getTimestampConfig();
-
-			// Get only dirty fields
-			const dirtyFields = this.getDirty();
-
-			if (dirtyFields.length === 0) {
-				// Nothing to update
-				return this;
-			}
-
-			// Build data object with only dirty fields
-			const data: Record<string, QueryValue> = {};
-			for (const field of dirtyFields) {
-				data[field] = this._attributes[field];
-			}
-
-			// Update updated_at timestamp if enabled
-			if (timestampConfig) {
-				const now = dialect.getCurrentTimestamp();
-				data[timestampConfig.updated_at] = now;
-				this._attributes[timestampConfig.updated_at] = now;
-			}
-
-			// Get primary key value
-			const id = this._attributes[config.primaryKey];
-
-			// Compile UPDATE query
-			const compiled = dialect.compileUpdate(
-				config.table,
-				data,
-				config.primaryKey,
-				id,
-			);
-
-			// Execute
-			await adapter.execute(compiled.sql, compiled.bindings);
-
-			// Sync original values
-			this._original = { ...this._attributes };
-
-			// Auto-clear relationships when model updates
-			this.clearRelationships();
-
-			return this;
-		});
-	}
-
-	/**
-	 * Delete this record from the database
-	 *
-	 * Write operation is queued if ORM is configured with enableWriteQueue (SQLite).
-	 *
-	 * @returns True if deleted successfully
-	 */
-	async delete(): Promise<boolean> {
-		if (!this._exists) {
-			throw new Error('Cannot delete a model that does not exist.');
+		if (snakeCase.endsWith('y')) {
+			return snakeCase.slice(0, -1) + 'ies';
+		} else if (snakeCase.endsWith('s')) {
+			return snakeCase + 'es';
+		} else {
+			return snakeCase + 's';
 		}
-
-		const orm = ORM.getInstance();
-
-		return orm.queueWrite(async () => {
-			const dialect = orm.getDialect();
-			const adapter = orm.getAdapter();
-			const config = this.getConfig();
-
-			// Get primary key value
-			const id = this._attributes[config.primaryKey];
-
-			// Compile DELETE query
-			const compiled = dialect.compileDelete(
-				config.table,
-				config.primaryKey,
-				id,
-			);
-
-			// Execute
-			await adapter.execute(compiled.sql, compiled.bindings);
-
-			// Mark as not existing
-			this._exists = false;
-
-			return true;
-		});
 	}
 
-	/**
-	 * Check if the model has unsaved changes
-	 */
-	get isDirty(): boolean {
-		return this.getDirty().length > 0;
+	static query(): QueryBuilder<any> {
+		const tableName = this.getTableName();
+		return new QueryBuilder(this as any, tableName);
 	}
 
-	getDirty(): string[] {
-		const dirty: string[] = [];
-
-		for (const key in this._attributes) {
-			if (this._attributes[key] !== this._original[key]) {
-				dirty.push(key);
-			}
-		}
-
-		return dirty;
+	static async find(id: QueryValue): Promise<any> {
+		const primaryKey = this.config.primaryKey || 'id';
+		return this.query().where(primaryKey, id).first();
 	}
 
-	/**
-	 * Get an object showing what changed
-	 *
-	 * @returns Object mapping field names to { old, new } values
-	 */
-	getChanges(): Record<string, { old: any; new: any }> {
-		const changes: Record<string, { old: any; new: any }> = {};
-
-		for (const key of this.getDirty()) {
-			changes[key] = {
-				old: this._original[key],
-				new: this._attributes[key],
-			};
-		}
-
-		return changes;
+	static async all(): Promise<any[]> {
+		return this.query().get();
 	}
 
-	/**
-	 * Get all attributes as a plain object
-	 * Useful for serialization
-	 */
-	toJSON(): Record<string, any> {
-		return { ...this._attributes };
-	}
+	static async create(data: Record<string, any>): Promise<any> {
+		const model = new (this as any)();
 
-	// ==================== Relationship Property Access ====================
-
-	/**
-	 * Helper for React Suspense-compatible relationship getters.
-	 */
-	protected getWithSuspense<R>(relationshipName: string): R {
-		const privateKey = `_${relationshipName}`;
-
-		if ((this as any)[privateKey] !== undefined) {
-			return (this as any)[privateKey];
-		}
-
-		const loadingKey = `_loading_${relationshipName}`;
-		if ((this as any)[loadingKey]) {
-			throw (this as any)[loadingKey];
-		}
-
-		const promise = this.loadRelationship(relationshipName).then(() => {
-			delete (this as any)[loadingKey];
-		});
-
-		(this as any)[loadingKey] = promise;
-		throw promise;
-	}
-
-	private getRelationshipDefinitions(): Record<string, any> {
-		const constructor = this.constructor as typeof Model;
-		if (typeof (constructor as any).defineRelationships === 'function') {
-			return (constructor as any).defineRelationships();
-		}
-		return {};
-	}
-
-	private async loadRelationship(relationshipName: string): Promise<void> {
-		const relationships = this.getRelationshipDefinitions();
-		const relationship = relationships[relationshipName];
-
-		if (!relationship) {
-			throw new Error(
-				`Relationship '${relationshipName}' not found in defineRelationships()`,
-			);
-		}
-
-		if (typeof relationship.get !== 'function') {
-			throw new Error(
-				`Relationship '${relationshipName}' must have a get() method`,
-			);
-		}
-
-		const result = await relationship.get();
-		(this as any)[`_${relationshipName}`] = result;
-	}
-
-	// ==================== Static Query Methods ====================
-
-	/**
-	 * Get a QueryBuilder instance for this model
-	 *
-	 * Example:
-	 * const users = await User.query()
-	 *   .where('age', '>', 18)
-	 *   .orderBy('name')
-	 *   .get();
-	 */
-	static query<T extends Model<T>>(this: new () => T): QueryBuilder<T> {
-		const config = (this as any).config;
-		return new QueryBuilder(this as any, config.table);
-	}
-
-	/**
-	 * Find a record by primary key
-	 *
-	 * @param id - Primary key value
-	 * @returns Model instance or null if not found
-	 */
-	static async find<T extends Model<T>>(
-		this: new () => T,
-		id: QueryValue,
-	): Promise<T | null> {
-		const config = (this as any).config;
-		const primaryKey = config.primaryKey || 'id';
-
-		return (this as any).query().where(primaryKey, id).first();
-	}
-
-	/**
-	 * Get all records
-	 *
-	 * @returns Array of all model instances
-	 */
-	static async all<T extends Model<T>>(this: new () => T): Promise<T[]> {
-		return (this as any).query().get();
-	}
-
-	/**
-	 * Create and insert a new record in one call
-	 *
-	 * @param data - Initial data for the model
-	 * @returns The created model instance
-	 */
-	static async create<T extends Model<T>>(
-		this: new () => T,
-		data: Record<string, any>,
-	): Promise<T> {
-		const model = new this();
-
-		// Set all properties
 		for (const [key, value] of Object.entries(data)) {
 			(model as any)[key] = value;
 		}
 
-		await model.insert();
+		await model.save();
 		return model;
 	}
 
-	clearRelationships(): void {
-		const relationships = this.getRelationshipDefinitions();
+	// ==================== Relationship Factory Methods ====================
 
-		for (const relationName in relationships) {
-			const privateProp = `_${relationName}`;
-			if (privateProp in this) {
-				delete (this as any)[privateProp];
-			}
-		}
+	protected static hasOne<R extends Model<R>>(
+		related: any,
+		foreignKey?: string,
+		localKey?: string,
+	): HasOne<R> {
+		return new HasOne(this as any, related, foreignKey, localKey);
 	}
 
-	/**
-	 * Refresh model data from database
-	 */
-	async refresh(): Promise<this> {
-		if (!this._exists) {
-			throw new Error('Cannot refresh a model that does not exist');
-		}
+	protected static hasMany<R extends Model<R>>(
+		related: any,
+		foreignKey?: string,
+		localKey?: string,
+	): HasMany<R> {
+		return new HasMany(this as any, related, foreignKey, localKey);
+	}
 
-		const config = this.getConfig();
-		const constructor = this.constructor as typeof Model;
-		const id = this._attributes[config.primaryKey];
+	protected static belongsToMany<R extends Model<R>>(
+		related: any,
+		pivotTable: string,
+		foreignPivotKey?: string,
+		relatedPivotKey?: string,
+		parentKey?: string,
+		relatedKey?: string,
+	): BelongsToMany<R> {
+		return new BelongsToMany(
+			this as any,
+			related,
+			pivotTable,
+			foreignPivotKey,
+			relatedPivotKey,
+			parentKey,
+			relatedKey,
+		);
+	}
 
-		const fresh = await (constructor as any).find(id);
-		if (!fresh) {
-			throw new Error('Model no longer exists in database');
-		}
-
-		this._attributes = { ...(fresh as any)._attributes };
-		this._original = { ...(fresh as any)._original };
-		this.clearRelationships();
-
-		return this;
+	protected static morphTo<R extends Model<R>>(
+		config: MorphToConfig<R>,
+	): MorphTo<R> {
+		return new MorphTo(this as any, config);
 	}
 }
+
+function applyMixins(derivedCtor: any, constructors: any[]) {
+	constructors.forEach(baseCtor => {
+		Object.getOwnPropertyNames(baseCtor.prototype).forEach(name => {
+			if (name !== 'constructor') {
+				const descriptor = Object.getOwnPropertyDescriptor(
+					baseCtor.prototype,
+					name,
+				);
+				if (descriptor) {
+					Object.defineProperty(
+						derivedCtor.prototype,
+						name,
+						descriptor,
+					);
+				}
+			}
+		});
+	});
+}
+
+applyMixins(Model, [
+	RecordPersistenceMixin,
+	ChangeStateMixin,
+	RelationshipLoaderMixin,
+]);

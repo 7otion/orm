@@ -1,63 +1,72 @@
 /**
  * Base Relationship Class
  *
- * All relationship types (HasOne, HasMany, BelongsToMany) extend this class.
+ * All relationship types (HasOne, HasMany, BelongsToMany, MorphTo) extend this class.
  *
  * Key Responsibilities:
- * - Provide a QueryBuilder for the related model
  * - Define how to load related records (lazy loading)
  * - Define how to eager load for multiple parent models
  *
  * Relationship Pattern:
- * - Relationships return a QueryBuilder, not results
- * - This allows chaining: user.posts().where('status', 'published').get()
- * - Lazy loading: call get() on the builder
+ * - Relationships are accessed as properties: user.posts
+ * - Lazy loading: triggered by Proxy when property is accessed
  * - Eager loading: use with() on the parent query
  */
 
-import { QueryBuilder } from '@/query-builder';
-import type { Model, ModelConstructor } from '@/model';
+import type { Model, ModelConstructor } from '../model';
 
 export abstract class Relationship<T extends Model<T>> {
-	/**
-	 * The parent model this relationship is attached to
-	 */
-	protected parent: Model<any>;
-
-	/**
-	 * The related model class
-	 */
+	protected parentConstructor: ModelConstructor<any>;
 	protected related: ModelConstructor<T>;
-
-	/**
-	 * The foreign key column name
-	 */
 	protected foreignKey: string;
-
-	/**
-	 * The local key column name (usually primary key)
-	 */
 	protected localKey: string;
 
 	constructor(
-		parent: Model<any>,
-		related: ModelConstructor<T>,
-		foreignKey: string,
-		localKey: string,
+		parent: ModelConstructor<any> | Model<any>,
+		related: any,
+		foreignKey?: string,
+		localKey?: string,
 	) {
-		this.parent = parent;
+		if (typeof parent === 'function') {
+			this.parentConstructor = parent;
+		} else {
+			this.parentConstructor =
+				parent.constructor as ModelConstructor<any>;
+		}
+
 		this.related = related;
-		this.foreignKey = foreignKey;
-		this.localKey = localKey;
+
+		if (!foreignKey) {
+			const parentClassName = this.parentConstructor.name;
+			const snakeCase = parentClassName
+				.replace(/Model$/, '')
+				.replace(/([A-Z])/g, '_$1')
+				.toLowerCase()
+				.replace(/^_/, '');
+			this.foreignKey = `${snakeCase}_id`;
+		} else {
+			this.foreignKey = foreignKey;
+		}
+
+		if (!localKey) {
+			this.localKey = this.parentConstructor.config?.primaryKey || 'id';
+		} else {
+			this.localKey = localKey;
+		}
+	}
+
+	protected getParentKeyValue(parent: Model<any>): any {
+		return (parent as any)[this.localKey];
 	}
 
 	/**
-	 * Get a query builder for the related model with relationship constraints
-	 * This is what gets called when you do user.posts()
+	 * Get related model(s) for a parent instance
+	 * This is called by loadRelationship() during lazy loading
 	 *
-	 * @returns QueryBuilder for the related model
+	 * @param parent - The parent model instance
+	 * @returns The related model(s)
 	 */
-	abstract getQuery(): QueryBuilder<T>;
+	abstract get(parent: Model<any>): Promise<T | T[] | null>;
 
 	/**
 	 * Eager load this relationship for multiple parent models

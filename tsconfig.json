@@ -23,13 +23,7 @@
 		"strictNullChecks": true,
 		"strictFunctionTypes": true,
 		"strictBindCallApply": true,
-		"strictPropertyInitialization": false,
-
-		/* Path mapping */
-		"baseUrl": ".",
-		"paths": {
-			"@/*": ["./src/*"]
-		}
+		"strictPropertyInitialization": false
 	},
 	"include": ["src/**/*"],
 	"exclude": ["node_modules", "dist", "examples"]

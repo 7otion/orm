@@ -16,7 +16,7 @@
  * - Transform data (Model does that)
  */
 
-import type { DatabaseRow, QueryValue } from '@/types';
+import type { DatabaseRow, QueryValue } from './types';
 
 export interface DatabaseAdapter {
 	/**

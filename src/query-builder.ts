@@ -13,13 +13,6 @@
  * - Generate SQL (that's SqlDialect's job)
  * - Execute queries directly (uses ORM's adapter)
  * - Know about database specifics
- *
- * Usage:
- * const users = await User.query()
- *   .where('age', '>', 18)
- *   .orderBy('name', 'asc')
- *   .limit(10)
- *   .get();
  */
 
 import type {
@@ -30,33 +23,15 @@ import type {
 	WhereValue,
 	WhereCondition,
 	WhereOperator,
-} from '@/types';
-import type { Model, ModelConstructor } from '@/model';
-import { ORM } from '@/orm';
+} from './types';
+import type { Model, ModelConstructor } from './model';
+import { ORM } from './orm';
 
 export class QueryBuilder<T extends Model<T>> {
-	/**
-	 * The query structure being built
-	 * This is what gets passed to SqlDialect for compilation
-	 */
 	private query: QueryStructure;
-
-	/**
-	 * The Model class this query is for
-	 * Used to instantiate results as typed model instances
-	 */
 	private modelClass: ModelConstructor<T>;
-
-	/**
-	 * Relationships to eager load with the query
-	 * Maps relationship name to the relationship method
-	 */
 	private eagerLoad: Map<string, () => any> = new Map();
 
-	/**
-	 * Constraint function for relationship queries
-	 * Applied when loading relationship data
-	 */
 	private relationshipConstraint?: (query: QueryBuilder<T>) => void;
 
 	constructor(modelClass: ModelConstructor<T>, tableName: string) {
@@ -91,7 +66,7 @@ export class QueryBuilder<T extends Model<T>> {
 
 		const condition: WhereCondition = {
 			type: 'basic',
-			column,
+			column: String(column),
 			operator,
 			value: actualValue,
 		};
@@ -165,6 +140,20 @@ export class QueryBuilder<T extends Model<T>> {
 		return this;
 	}
 
+	/**
+	 * Raw ORDER BY clause for complex sorting
+	 *
+	 * Example:
+	 * - orderByRaw('created_at DESC, name ASC')
+	 */
+	orderByRaw(sql: string): this {
+		this.query.orders.push({
+			column: sql,
+			direction: 'raw' as OrderDirection,
+		});
+		return this;
+	}
+
 	limit(limit: number): this {
 		this.query.limitValue = limit;
 		return this;
@@ -179,13 +168,8 @@ export class QueryBuilder<T extends Model<T>> {
 	 * Specify relationships to eager load
 	 * User.query().with('posts', 'profile').get()
 	 */
-	/**
-	 * Specify relationships to eager load
-	 * User.query().with('posts', 'profile').get()
-	 */
 	with(...relations: string[]): this {
 		for (const relation of relations) {
-			// Store the relation name - we'll load it after the main query
 			this.eagerLoad.set(relation, relation as any);
 		}
 		return this;
@@ -211,7 +195,6 @@ export class QueryBuilder<T extends Model<T>> {
 		const compiled = dialect.compileSelect(this.query);
 		const rows = await adapter.query(compiled.sql, compiled.bindings);
 
-		// Transform raw rows into model instances
 		const models = rows.map((row: DatabaseRow) => this.hydrate(row));
 
 		// Eager load relationships if requested
@@ -246,24 +229,29 @@ export class QueryBuilder<T extends Model<T>> {
 		const firstModel = models[0];
 		const modelConstructor = firstModel!.constructor as any;
 
-		if (typeof modelConstructor.defineRelationships !== 'function') {
+		if (!modelConstructor.relationships) {
 			return;
 		}
 
-		const relationships = modelConstructor.defineRelationships();
+		const relationships = modelConstructor.relationships;
 
 		for (const relationName of this.eagerLoad.keys()) {
 			const relationship = relationships[relationName];
 
 			if (!relationship) {
 				throw new Error(
-					`Relationship '${relationName}' not found in defineRelationships()`,
+					`Relationship '${relationName}' not found in static relationships constant`,
 				);
 			}
 
 			if (typeof relationship.eagerLoadFor === 'function') {
 				await relationship.eagerLoadFor(models, relationName);
 			}
+		}
+
+		// Call hook for custom post-load logic
+		if (typeof modelConstructor.afterEagerLoad === 'function') {
+			await modelConstructor.afterEagerLoad(models);
 		}
 	}
 
