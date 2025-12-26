@@ -79,8 +79,12 @@ export class ORM {
 		if (selectStarMatch) {
 			const table = selectStarMatch[1];
 			const where = selectStarMatch[2];
-			if(!table) throw new Error('Unable to determine table name for caching.');
-			if(!where) throw new Error('Unable to determine WHERE clause for caching.');
+			if (!table)
+				throw new Error('Unable to determine table name for caching.');
+			if (!where)
+				throw new Error(
+					'Unable to determine WHERE clause for caching.',
+				);
 
 			// id = ?
 			const eqMatch = where.match(/^id\s*=\s*\?/i);
