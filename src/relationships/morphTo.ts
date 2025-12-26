@@ -16,7 +16,9 @@ export interface MorphToConfig<T extends Model<T>> {
 
 export class MorphTo<T extends Model<T>> {
 	constructor(
+		// @ts-ignore
 		private parent: any,
+		// @ts-ignore
 		private config: MorphToConfig<T>,
 	) {}
 
@@ -85,17 +87,19 @@ export class MorphTo<T extends Model<T>> {
 				.filter(id => id !== null && id !== undefined);
 
 			if (foreignKeys.length === 0) {
-				// All foreign keys are null - set null
 				for (const model of groupedModels) {
 					(model as any)[`_${relationName}`] = null;
 				}
 				continue;
 			}
 
+			// Deduplicate IDs
+			const uniqueForeignKeys = [...new Set(foreignKeys)];
+
 			// Query all related models at once
 			const primaryKey = RelatedModel.config.primaryKey || 'id';
 			const relatedModels = await RelatedModel.query()
-				.where(primaryKey, 'IN', foreignKeys)
+				.where(primaryKey, 'IN', uniqueForeignKeys)
 				.get();
 
 			// Create lookup map by primary key

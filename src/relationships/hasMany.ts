@@ -14,8 +14,7 @@ export class HasMany<T extends Model<T>> extends Relationship<T> {
 	 * Queries with: WHERE foreign_key = parent's local key value
 	 */
 	async get(parent: Model<any>): Promise<T[]> {
-		const config = (this.related as any).config;
-		const tableName = config.table;
+		const tableName = (this.related as any).getTableName();
 
 		const query = new QueryBuilder(this.related, tableName);
 		const localValue = this.getParentKeyValue(parent);
@@ -29,12 +28,23 @@ export class HasMany<T extends Model<T>> extends Relationship<T> {
 	): Promise<void> {
 		const localValues = models.map(model => (model as any)[this.localKey]);
 
-		const config = (this.related as any).config;
-		const tableName = config.table;
+		// Skip if all foreign key values are null/undefined
+		const hasNonNullValue = localValues.some(val => val != null);
+		if (!hasNonNullValue) {
+			for (const model of models) {
+				(model as any)[`_${relationName}`] = [];
+			}
+			return;
+		}
+
+		// Deduplicate IDs
+		const uniqueValues = [...new Set(localValues.filter(v => v != null))];
+
+		const tableName = (this.related as any).getTableName();
 		const query = new QueryBuilder(this.related, tableName);
 
 		const relatedModels = await query
-			.where(this.foreignKey, 'IN', localValues)
+			.where(this.foreignKey, 'IN', uniqueValues)
 			.get();
 
 		const relatedMap = new Map<any, T[]>();

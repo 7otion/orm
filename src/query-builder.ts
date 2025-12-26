@@ -175,6 +175,22 @@ export class QueryBuilder<T extends Model<T>> {
 		return this;
 	}
 
+	/**
+	 * Extract table names from the query for cache tagging
+	 */
+	private extractTableNames(): string[] {
+		const tables = new Set<string>();
+
+		tables.add(this.query.table);
+		if (this.query.joins) {
+			for (const join of this.query.joins) {
+				tables.add(join.table);
+			}
+		}
+
+		return Array.from(tables);
+	}
+
 	setRelationshipConstraint(
 		constraint: (query: QueryBuilder<T>) => void,
 	): this {
@@ -190,10 +206,15 @@ export class QueryBuilder<T extends Model<T>> {
 
 		const orm = ORM.getInstance();
 		const dialect = orm.getDialect();
-		const adapter = orm.getAdapter();
 
 		const compiled = dialect.compileSelect(this.query);
-		const rows = await adapter.query(compiled.sql, compiled.bindings);
+
+		const tables = orm.resultCacheAdapter ? this.extractTableNames() : [];
+		const rows = await orm.cachedSelect(
+			compiled.sql,
+			compiled.bindings,
+			tables,
+		);
 
 		const models = rows.map((row: DatabaseRow) => this.hydrate(row));
 
@@ -210,6 +231,52 @@ export class QueryBuilder<T extends Model<T>> {
 
 		const results = await this.get();
 		return results.length > 0 ? results[0]! : null;
+	}
+
+	/**
+	 * Paginate results
+	 * Returns paginated data with total count
+	 */
+	async paginate(
+		page: number = 1,
+		limit: number = 20,
+	): Promise<{ data: T[]; total: number }> {
+		// Apply relationship constraint if this is a relationship query
+		if (this.relationshipConstraint) {
+			this.relationshipConstraint(this);
+		}
+
+		const orm = ORM.getInstance();
+		const dialect = orm.getDialect();
+
+		const countQuery = { ...this.query };
+		const countCompiled = dialect.compileCount(countQuery);
+		const countTables = this.extractTableNames();
+		const countResult = await orm.cachedSelect(
+			countCompiled.sql,
+			countCompiled.bindings,
+			countTables,
+		);
+		const total = countResult[0]?.count || 0;
+
+		const offset = (page - 1) * limit;
+		this.limit(limit).offset(offset);
+
+		const compiled = dialect.compileSelect(this.query);
+		const dataTables = this.extractTableNames();
+		const rows = await orm.cachedSelect(
+			compiled.sql,
+			compiled.bindings,
+			dataTables,
+		);
+
+		const models = rows.map((row: DatabaseRow) => this.hydrate(row));
+
+		if (this.eagerLoad.size > 0) {
+			await this.loadRelationships(models);
+		}
+
+		return { data: models, total };
 	}
 
 	private hydrate(row: DatabaseRow): T {
@@ -229,11 +296,12 @@ export class QueryBuilder<T extends Model<T>> {
 		const firstModel = models[0];
 		const modelConstructor = firstModel!.constructor as any;
 
-		if (!modelConstructor.relationships) {
+		// Access the static relationships getter
+		const relationships = modelConstructor.relationships;
+
+		if (!relationships || Object.keys(relationships).length === 0) {
 			return;
 		}
-
-		const relationships = modelConstructor.relationships;
 
 		for (const relationName of this.eagerLoad.keys()) {
 			const relationship = relationships[relationName];

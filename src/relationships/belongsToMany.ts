@@ -98,6 +98,20 @@ export class BelongsToMany<T extends Model<T>> extends Relationship<T> {
 			model => (model as any)[this.parentKey],
 		);
 
+		// Skip if all parent key values are null/undefined
+		const hasNonNullValue = parentValues.some(val => val != null);
+		if (!hasNonNullValue) {
+			for (const model of models) {
+				(model as any)[`_${relationName}`] = [];
+			}
+			return;
+		}
+
+		// Deduplicate IDs
+		const uniqueParentValues = [
+			...new Set(parentValues.filter(v => v != null)),
+		];
+
 		const orm = ORM.getInstance();
 		const dialect = orm.getDialect();
 		const adapter = orm.getAdapter();
@@ -109,7 +123,7 @@ export class BelongsToMany<T extends Model<T>> extends Relationship<T> {
 					type: 'basic',
 					column: this.foreignPivotKey,
 					operator: 'IN',
-					value: parentValues,
+					value: uniqueParentValues,
 				},
 			],
 			orders: [],
@@ -131,8 +145,7 @@ export class BelongsToMany<T extends Model<T>> extends Relationship<T> {
 			...new Set(pivotRows.map((row: any) => row[this.relatedPivotKey])),
 		];
 
-		const config = (this.related as any).config;
-		const tableName = config.table;
+		const tableName = (this.related as any).getTableName();
 		const query = new QueryBuilder(this.related, tableName);
 
 		const relatedModels = await query

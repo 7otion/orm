@@ -15,6 +15,8 @@
 
 import type { DatabaseAdapter } from './adapter';
 import type { SqlDialect } from './dialect';
+import type { ResultCacheAdapter } from './result-cache';
+import type { DatabaseRow } from './types';
 
 export interface ORMConfig {
 	adapter: DatabaseAdapter;
@@ -25,6 +27,15 @@ export interface ORMConfig {
 	 * Default: false
 	 */
 	enableWriteQueue?: boolean;
+	/**
+	 * Optional result cache adapter (for SELECT result caching)
+	 * Users must import and provide a cache implementation if they want caching
+	 */
+	resultCacheAdapter?: ResultCacheAdapter;
+	/**
+	 * Disable result caching globally
+	 */
+	disableResultCache?: boolean;
 }
 
 export class ORM {
@@ -34,18 +45,126 @@ export class ORM {
 	private dialect: SqlDialect;
 	private writeQueue: Promise<any> = Promise.resolve();
 	private enableWriteQueue: boolean = false;
+	public resultCacheAdapter?: ResultCacheAdapter;
+	private disableResultCache: boolean = false;
+
+	private connectionId: string = 'default'; // For multi-connection support (future)
 
 	private constructor(config: ORMConfig) {
 		this.adapter = config.adapter;
 		this.dialect = config.dialect;
 		this.enableWriteQueue = config.enableWriteQueue ?? false;
+		this.resultCacheAdapter = config.resultCacheAdapter;
+		this.disableResultCache = config.disableResultCache ?? false;
+	}
+
+	async cachedSelect(
+		sql: string,
+		params: any[] = [],
+		tables: string[] = [],
+	): Promise<DatabaseRow[]> {
+		if (
+			this.disableResultCache ||
+			this.adapter.inTransaction() ||
+			!this.resultCacheAdapter
+		) {
+			// Never cache inside transactions or if no cache adapter provided
+			return this.adapter.query(sql, params);
+		}
+
+		// Hybrid caching: row-level for SELECT * FROM table WHERE id = ?/IN (?), query-level for others
+		const selectStarMatch = sql.match(
+			/^SELECT \* FROM ([^ ]+) WHERE (.+)$/i,
+		);
+		if (selectStarMatch) {
+			const table = selectStarMatch[1];
+			const where = selectStarMatch[2];
+			// id = ?
+			const eqMatch = where.match(/^id\s*=\s*\?/i);
+			// id IN (?, ?, ...)
+			const inMatch = where.match(/^id\s+IN\s*\((.+)\)/i);
+			if (eqMatch && params.length === 1) {
+				// Try row cache for single id
+				const row = this.resultCacheAdapter!.getRowById?.(
+					table,
+					params[0],
+				);
+				if (row) return [row];
+				// Miss: fetch from DB, cache row
+				const result = await this.adapter.query(sql, params);
+				if (result[0])
+					this.resultCacheAdapter!.setRowById?.(
+						table,
+						params[0],
+						result[0],
+					);
+				return result;
+			} else if (inMatch) {
+				// Try row cache for each id
+				const idParams = params;
+				const cachedRows: DatabaseRow[] = [];
+				const missingIds: any[] = [];
+				for (const id of idParams) {
+					const row = this.resultCacheAdapter!.getRowById?.(
+						table,
+						id,
+					);
+					if (row) cachedRows.push(row);
+					else missingIds.push(id);
+				}
+				let fetchedRows: DatabaseRow[] = [];
+				if (missingIds.length > 0) {
+					// Build SQL for missing ids
+					const qMarks = missingIds.map(() => '?').join(', ');
+					const fetchSql = `SELECT * FROM ${table} WHERE id IN (${qMarks})`;
+					fetchedRows = await this.adapter.query(
+						fetchSql,
+						missingIds,
+					);
+					for (const row of fetchedRows) {
+						this.resultCacheAdapter!.setRowById?.(
+							table,
+							row.id,
+							row,
+						);
+					}
+				}
+				// Return all rows in requested order
+				const idToRow = new Map<any, DatabaseRow>();
+				for (const r of cachedRows) idToRow.set(r.id, r);
+				for (const r of fetchedRows) idToRow.set(r.id, r);
+				return idParams
+					.map(id => idToRow.get(id))
+					.filter(Boolean) as DatabaseRow[];
+			}
+		}
+		// Fallback: query-level cache
+		const key = this.makeCacheKey(sql, params);
+		const cached = this.resultCacheAdapter!.get<DatabaseRow>(key);
+		if (cached) return cached;
+		const result = await this.adapter.query(sql, params);
+		this.resultCacheAdapter!.set<DatabaseRow>(key, result, tables);
+		return result;
+	}
+
+	invalidateResultCache(tables: string[]): void {
+		if (this.resultCacheAdapter) {
+			this.resultCacheAdapter.invalidate(tables);
+		}
+	}
+
+	private makeCacheKey(sql: string, params: any[]): string {
+		return `${this.connectionId}|${sql.trim()}|${JSON.stringify(params)}`;
+	}
+
+	setResultCacheDisabled(disabled: boolean): void {
+		this.disableResultCache = disabled;
 	}
 
 	static initialize(config: ORMConfig): void {
-		if (ORM.instance) {
-			throw new Error('ORM is already initialized.');
+		if (!ORM.instance) {
+			ORM.instance = new ORM(config);
 		}
-		ORM.instance = new ORM(config);
 	}
 
 	static getInstance(): ORM {

@@ -5,6 +5,7 @@
 import { QueryBuilder } from './query-builder';
 import { HasOne } from './relationships/hasOne';
 import { HasMany } from './relationships/hasMany';
+import { BelongsTo } from './relationships/belongsTo';
 import { BelongsToMany } from './relationships/belongsToMany';
 import { MorphTo, type MorphToConfig } from './relationships/morphTo';
 
@@ -21,6 +22,7 @@ import type { ModelConfig, QueryValue, TimestampConfig } from './types';
 export interface ModelConstructor<TModel extends Model<TModel>> {
 	new (): TModel;
 	config: ModelConfig;
+	_cachedTableName?: string;
 	getTableName(): string;
 	query(): QueryBuilder<TModel>;
 	find(id: QueryValue): Promise<TModel | null>;
@@ -81,6 +83,8 @@ export abstract class Model<T extends Model<T>> {
 	private _original: Record<string, any> = {};
 	// @ts-ignore - Accessed by mixin methods
 	private _exists: boolean = false;
+	// @ts-ignore - Store proxy reference for mixin methods
+	private _proxy?: any;
 
 	readonly relationships = {};
 
@@ -88,11 +92,16 @@ export abstract class Model<T extends Model<T>> {
 	 * Returns Proxy to enable natural property access and relationship getters
 	 */
 	constructor() {
-		return new Proxy(this, {
+		const proxy = new Proxy(this, {
 			get(target: any, prop: string | symbol) {
 				// Internal properties and symbols bypass proxy logic
 				if (typeof prop === 'symbol' || prop.startsWith('_')) {
 					return target[prop];
+				}
+
+				// Special case: return constructor without binding to preserve static properties
+				if (prop === 'constructor') {
+					return Object.getPrototypeOf(target).constructor;
 				}
 
 				// Check prototype chain for methods and getters (including mixed-in methods)
@@ -104,14 +113,14 @@ export abstract class Model<T extends Model<T>> {
 					);
 
 					if (descriptor) {
-						// Execute getters
+						// Execute getters with proxy as context so they access properties through proxy
 						if (descriptor.get) {
-							return descriptor.get.call(target);
+							return descriptor.get.call(proxy);
 						}
 
-						// Bind methods to maintain context
+						// Bind methods to proxy so they access properties through proxy
 						if (typeof descriptor.value === 'function') {
-							return descriptor.value.bind(target);
+							return descriptor.value.bind(proxy);
 						}
 					}
 
@@ -119,9 +128,21 @@ export abstract class Model<T extends Model<T>> {
 					proto = Object.getPrototypeOf(proto);
 				}
 
+				// Check _attributes first for data properties (id, name, etc.)
+				// This prevents TypeScript's `id!: number;` declarations from shadowing actual data
+				if (prop in target._attributes) {
+					return target._attributes[prop];
+				}
+
 				// Check instance properties (used for eager-loaded relationships via _posts, _profile)
+				// Skip TypeScript placeholder properties (undefined values from declarations like `id!: number;`)
 				if (Object.prototype.hasOwnProperty.call(target, prop)) {
-					return target[prop];
+					const instanceValue = target[prop];
+					// Only return instance property if it's not undefined
+					// (undefined likely means it's a TypeScript placeholder)
+					if (instanceValue !== undefined) {
+						return instanceValue;
+					}
 				}
 
 				// Auto-generate relationship getters if not explicitly defined
@@ -133,8 +154,8 @@ export abstract class Model<T extends Model<T>> {
 					return target.getWithSuspense(prop as string);
 				}
 
-				// Default: Return from _attributes (data properties like user.name, user.email)
-				return target._attributes[prop];
+				// Default: undefined for non-existent properties
+				return undefined;
 			},
 
 			set(target: any, prop: string | symbol, value: any) {
@@ -164,10 +185,15 @@ export abstract class Model<T extends Model<T>> {
 				return true;
 			},
 		});
+
+		// Store proxy reference so mixin methods can access it
+		this._proxy = proxy;
+
+		return proxy;
 	}
 
-	private getConfig(): Required<ModelConfig> {
-		const constructor = this.constructor as unknown as typeof Model;
+	protected getConfig(): ModelConfig {
+		const constructor = this.constructor as typeof Model;
 		const config = constructor.config;
 
 		let tableName = config.table;
@@ -221,19 +247,24 @@ export abstract class Model<T extends Model<T>> {
 			return ModelClass.config.table;
 		}
 
-		const className = (this as any).name || 'Model';
-		const snakeCase = className
-			.replace(/([A-Z])/g, '_$1')
-			.toLowerCase()
-			.replace(/^_/, '');
+		// Cache the derived table name on the class constructor itself
+		if (!ModelClass._cachedTableName) {
+			const className = (this as any).name || 'Model';
+			const snakeCase = className
+				.replace(/([A-Z])/g, '_$1')
+				.toLowerCase()
+				.replace(/^_/, '');
 
-		if (snakeCase.endsWith('y')) {
-			return snakeCase.slice(0, -1) + 'ies';
-		} else if (snakeCase.endsWith('s')) {
-			return snakeCase + 'es';
-		} else {
-			return snakeCase + 's';
+			if (snakeCase.endsWith('y')) {
+				ModelClass._cachedTableName = snakeCase.slice(0, -1) + 'ies';
+			} else if (snakeCase.endsWith('s')) {
+				ModelClass._cachedTableName = snakeCase + 'es';
+			} else {
+				ModelClass._cachedTableName = snakeCase + 's';
+			}
 		}
+
+		return ModelClass._cachedTableName;
 	}
 
 	static query(): QueryBuilder<any> {
@@ -277,6 +308,14 @@ export abstract class Model<T extends Model<T>> {
 		localKey?: string,
 	): HasMany<R> {
 		return new HasMany(this as any, related, foreignKey, localKey);
+	}
+
+	protected static belongsTo<R extends Model<R>>(
+		related: any,
+		foreignKey?: string,
+		localKey?: string,
+	): BelongsTo<R> {
+		return new BelongsTo(this as any, related, foreignKey, localKey);
 	}
 
 	protected static belongsToMany<R extends Model<R>>(

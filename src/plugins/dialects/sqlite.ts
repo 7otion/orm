@@ -164,12 +164,65 @@ export class SQLiteDialect implements SqlDialect {
 	}
 
 	/**
+	 * Compile a COUNT query
+	 *
+	 * Example output:
+	 * SELECT COUNT(*) as count FROM users WHERE age > ? AND status = ?
+	 */
+	compileCount(query: QueryStructure): CompiledQuery {
+		const bindings: QueryValue[] = [];
+		let sql = `SELECT COUNT(*) as count FROM ${query.table}`;
+
+		// JOIN clauses
+		if (query.joins && query.joins.length > 0) {
+			for (const join of query.joins) {
+				sql += ` ${join.type} JOIN ${join.table} ON ${join.first} ${join.operator} ${join.second}`;
+			}
+		}
+
+		// WHERE clauses
+		if (query.wheres.length > 0) {
+			sql += ' WHERE ';
+			const whereClauses: string[] = [];
+
+			for (const where of query.wheres) {
+				if (where.type === 'raw') {
+					whereClauses.push(`(${where.sql})`);
+					if (where.bindings) {
+						bindings.push(...where.bindings);
+					}
+				} else {
+					const { column, operator, value } = where;
+
+					if (operator === 'IN' || operator === 'NOT IN') {
+						const values = Array.isArray(value) ? value : [value];
+						const placeholders = values.map(() => '?').join(', ');
+						whereClauses.push(
+							`${column} ${operator} (${placeholders})`,
+						);
+						bindings.push(...values);
+					} else if (operator === 'IS' || operator === 'IS NOT') {
+						whereClauses.push(`${column} ${operator} NULL`);
+					} else {
+						whereClauses.push(`${column} ${operator} ?`);
+						bindings.push(value as QueryValue);
+					}
+				}
+			}
+
+			sql += whereClauses.join(' AND ');
+		}
+
+		return { sql, bindings };
+	}
+
+	/**
 	 * Get current timestamp for SQLite
 	 *
-	 * Returns SQL expression (not a value) so it can be used in queries
+	 * Returns ISO datetime string compatible with SQLite
 	 */
 	getCurrentTimestamp(): string {
-		return "datetime('now')";
+		return new Date().toISOString();
 	}
 
 	/**

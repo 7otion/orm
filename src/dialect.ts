@@ -74,6 +74,14 @@ export interface SqlDialect {
 	): CompiledQuery;
 
 	/**
+	 * Compile a COUNT query
+	 *
+	 * @param query - The query structure built by QueryBuilder
+	 * @returns Compiled SQL with bound parameters
+	 */
+	compileCount(query: QueryStructure): CompiledQuery;
+
+	/**
 	 * Get the current timestamp in database-specific format
 	 * Used for timestamp fields (created_at, updated_at)
 	 *

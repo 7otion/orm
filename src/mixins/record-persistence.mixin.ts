@@ -17,7 +17,7 @@ export class RecordPersistenceMixin {
 		}
 	}
 
-	private async insert(): Promise<this> {
+	protected async insert(): Promise<this> {
 		const orm = ORM.getInstance();
 		const self = this as any;
 
@@ -47,11 +47,13 @@ export class RecordPersistenceMixin {
 			self._exists = true;
 			self._original = { ...self._attributes };
 
+			orm.invalidateResultCache([config.table]);
+
 			return this;
 		});
 	}
 
-	private async update(): Promise<this> {
+	protected async update(): Promise<this> {
 		const self = this as any;
 		if (!self._exists) {
 			throw new Error(
@@ -96,6 +98,8 @@ export class RecordPersistenceMixin {
 			self._original = { ...self._attributes };
 			self.clearRelationships();
 
+			orm.invalidateResultCache([config.table]);
+
 			return this;
 		});
 	}
@@ -122,6 +126,8 @@ export class RecordPersistenceMixin {
 			await adapter.execute(compiled.sql, compiled.bindings);
 
 			self._exists = false;
+
+			orm.invalidateResultCache([config.table]);
 
 			return true;
 		});

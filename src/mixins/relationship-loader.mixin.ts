@@ -45,7 +45,9 @@ export class RelationshipLoaderMixin {
 			);
 		}
 
-		const result = await relationship.get(this);
+		// Use the proxy if available, otherwise fall back to raw instance
+		const instance = self._proxy || this;
+		const result = await relationship.get(instance);
 		self[`_${relationshipName}`] = result;
 	}
 
