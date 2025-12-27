@@ -1,8 +1,14 @@
 export class LocalStorageResultCache {
     // LocalStorage keys
-    get QUERY_CACHE_KEY() { return `${this.prefix}:queries`; }
-    get TAG_MAP_KEY() { return `${this.prefix}:tags`; }
-    get ROW_CACHE_KEY() { return `${this.prefix}:rows`; }
+    get QUERY_CACHE_KEY() {
+        return `${this.prefix}:queries`;
+    }
+    get TAG_MAP_KEY() {
+        return `${this.prefix}:tags`;
+    }
+    get ROW_CACHE_KEY() {
+        return `${this.prefix}:rows`;
+    }
     constructor(prefix = 'orm-cache', maxEntries = 100, defaultTTL, debug = false) {
         this.prefix = prefix;
         this.maxEntries = maxEntries;
@@ -51,7 +57,7 @@ export class LocalStorageResultCache {
                 value,
                 tags,
                 expiresAt,
-                createdAt: Date.now()
+                createdAt: Date.now(),
             };
             queries.set(key, entry);
             // Update tag map
@@ -63,13 +69,16 @@ export class LocalStorageResultCache {
             this.saveQueriesMap(queries);
             this.saveTagMap(tagMap);
             if (this.debug)
-                console.log('[LocalStorageResultCache] SET (query)', key, { tags });
+                console.log('[LocalStorageResultCache] SET (query)', key, {
+                    tags,
+                });
         }
         catch (error) {
             if (this.debug)
                 console.warn('[LocalStorageResultCache] Error setting query:', error);
             // If quota exceeded, try to clear some space
-            if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+            if (error instanceof DOMException &&
+                error.name === 'QuotaExceededError') {
                 this.evictOldest();
                 // Retry once
                 try {
@@ -115,8 +124,10 @@ export class LocalStorageResultCache {
             const tableKey = `${table}:${id}`;
             const entry = {
                 row,
-                expiresAt: this.defaultTTL ? Date.now() + this.defaultTTL : undefined,
-                createdAt: Date.now()
+                expiresAt: this.defaultTTL
+                    ? Date.now() + this.defaultTTL
+                    : undefined,
+                createdAt: Date.now(),
             };
             rows.set(tableKey, entry);
             this.saveRowsMap(rows);

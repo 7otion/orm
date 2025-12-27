@@ -184,6 +184,31 @@ export abstract class Model<T extends Model<T>> {
 				target._attributes[prop as string] = value;
 				return true;
 			},
+
+			/**
+			 * Controls which properties are visible during enumeration (Object.keys, for...in, spread)
+			 */
+			ownKeys(target: any) {
+				const attributeKeys = Object.keys(target._attributes);
+				return attributeKeys;
+			},
+
+			/**
+			 * Controls property descriptors for enumeration
+			 * Makes only _attributes properties enumerable, relationships are invisible
+			 */
+			getOwnPropertyDescriptor(target: any, prop: string | symbol) {
+				if (typeof prop === 'string' && prop in target._attributes) {
+					return {
+						enumerable: true,
+						configurable: true,
+						writable: true,
+						value: target._attributes[prop],
+					};
+				}
+
+				return undefined;
+			},
 		});
 
 		// Store proxy reference so mixin methods can access it

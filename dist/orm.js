@@ -110,17 +110,21 @@ export class ORM {
      */
     makeCacheKey(sql, params) {
         // Collapse all whitespace to single space, trim, and lowercase
-        const normalizedSql = sql
-            .replace(/\s+/g, ' ')
-            .trim()
-            .toLowerCase();
+        const normalizedSql = sql.replace(/\s+/g, ' ').trim().toLowerCase();
         // Stable JSON stringify for params (handles object key order)
         const stableStringify = (value) => {
             if (Array.isArray(value)) {
                 return '[' + value.map(stableStringify).join(',') + ']';
             }
             else if (value && typeof value === 'object') {
-                return '{' + Object.keys(value).sort().map(k => JSON.stringify(k) + ':' + stableStringify(value[k])).join(',') + '}';
+                return ('{' +
+                    Object.keys(value)
+                        .sort()
+                        .map(k => JSON.stringify(k) +
+                        ':' +
+                        stableStringify(value[k]))
+                        .join(',') +
+                    '}');
             }
             else {
                 return JSON.stringify(value);
