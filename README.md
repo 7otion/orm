@@ -16,7 +16,7 @@ Simple, type-safe, database-agnostic TypeScript ORM with Active Record pattern.
 ## Installation
 
 ```bash
-bun add https://github.com/7otion/7otion-orm
+bun add https://github.com/7otion/orm
 ```
 
 ### Optional Dependencies
