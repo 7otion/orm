@@ -165,6 +165,24 @@ export class QueryBuilder<T extends Model<T>> {
 	}
 
 	/**
+	 * Specify columns to select (default: all columns)
+	 * select('id', 'name') or select(['id', 'name'])
+	 */
+	select(...columns: (keyof T | string)[]): this {
+		this.query.columns = columns.map(String);
+		return this;
+	}
+
+	/**
+	 * Raw SELECT clause for complex expressions or aggregates
+	 * selectRaw('COUNT(*) as total, MAX(created_at) as latest')
+	 */
+	selectRaw(sql: string): this {
+		this.query.selectRaw = sql;
+		return this;
+	}
+
+	/**
 	 * Specify relationships to eager load
 	 * User.query().with('posts', 'profile').get()
 	 */

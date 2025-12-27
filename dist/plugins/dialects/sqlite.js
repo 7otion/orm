@@ -8,8 +8,11 @@ export class SQLiteDialect {
     compileSelect(query) {
         const bindings = [];
         let sql = 'SELECT ';
-        // SELECT clause - columns or *
-        if (query.columns && query.columns.length > 0) {
+        // SELECT clause - raw takes precedence, then columns, then *
+        if (query.selectRaw) {
+            sql += query.selectRaw;
+        }
+        else if (query.columns && query.columns.length > 0) {
             sql += query.columns.join(', ');
         }
         else {

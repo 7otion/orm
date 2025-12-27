@@ -63,6 +63,7 @@ export interface OrderByClause {
 export interface QueryStructure {
 	table: string;
 	columns?: string[];
+	selectRaw?: string;
 	wheres: WhereCondition[];
 	orders: OrderByClause[];
 	limitValue?: number;
