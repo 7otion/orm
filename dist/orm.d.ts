@@ -47,6 +47,12 @@ export declare class ORM {
     private constructor();
     cachedSelect(sql: string, params?: any[], tables?: string[]): Promise<DatabaseRow[]>;
     invalidateResultCache(tables: string[]): void;
+    /**
+     * Generate a robust cache key by normalizing SQL and params.
+     * - Collapses all whitespace to a single space
+     * - Lowercases SQL for case-insensitive matching
+     * - Serializes params with stable JSON
+     */
     private makeCacheKey;
     setResultCacheDisabled(disabled: boolean): void;
     static initialize(config: ORMConfig): void;

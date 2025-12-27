@@ -160,8 +160,29 @@ export class ORM {
 		}
 	}
 
+	/**
+	 * Generate a robust cache key by normalizing SQL and params.
+	 * - Collapses all whitespace to a single space
+	 * - Lowercases SQL for case-insensitive matching
+	 * - Serializes params with stable JSON
+	 */
 	private makeCacheKey(sql: string, params: any[]): string {
-		return `${this.connectionId}|${sql.trim()}|${JSON.stringify(params)}`;
+		// Collapse all whitespace to single space, trim, and lowercase
+		const normalizedSql = sql
+			.replace(/\s+/g, ' ')
+			.trim()
+			.toLowerCase();
+		// Stable JSON stringify for params (handles object key order)
+		const stableStringify = (value: any): string => {
+			if (Array.isArray(value)) {
+				return '[' + value.map(stableStringify).join(',') + ']';
+			} else if (value && typeof value === 'object') {
+				return '{' + Object.keys(value).sort().map(k => JSON.stringify(k) + ':' + stableStringify(value[k])).join(',') + '}';
+			} else {
+				return JSON.stringify(value);
+			}
+		};
+		return `${this.connectionId}|${normalizedSql}|${stableStringify(params)}`;
 	}
 
 	setResultCacheDisabled(disabled: boolean): void {
