@@ -62,7 +62,15 @@ export declare class QueryBuilder<T extends Model<T>> {
     selectRaw(sql: string): this;
     /**
      * Specify relationships to eager load
+     * Supports nested relationships with dot notation
+     *
+     * @example
+     * // Single-level relationships
      * User.query().with('posts', 'profile').get()
+     *
+     * // Nested relationships
+     * Post.query().with('category.contentType').get()
+     * User.query().with('posts.comments.author').get()
      */
     with(...relations: string[]): this;
     /**
@@ -82,6 +90,19 @@ export declare class QueryBuilder<T extends Model<T>> {
     }>;
     private hydrate;
     private loadRelationships;
+    /**
+     * Load nested relationships recursively
+     * Handles relationships like 'category.contentType'
+     */
+    private loadNestedRelationship;
+    /**
+     * Extract related models from a loaded relationship
+     */
+    private getRelatedModelsFromLoadedRelationship;
+    /**
+     * Recursively load nested relationships on related models
+     */
+    private loadNestedRelationshipOnRelatedModels;
     /**
      * Get the query structure (for internal use)
      * Used by relationship classes to inspect the query

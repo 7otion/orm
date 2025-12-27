@@ -7,6 +7,7 @@ Simple, type-safe, database-agnostic TypeScript ORM with Active Record pattern.
 - 🔌 **Database Agnostic** - Works with any database through adapters
 - 🚀 **Active Record Pattern** - Intuitive model-based API
 - 🔗 **Relationships** - HasOne, HasMany, BelongsToMany with eager/lazy loading
+- 🌳 **Nested Relationships** - Support for `with('category.contentType')` dot notation
 - 💾 **Smart Caching** - Automatic relationship cache management
 - 🔄 **Transactions** - Full transaction support with nested transactions
 - 📝 **Query Builder** - Fluent, chainable query interface
@@ -220,6 +221,15 @@ const users = await User.query()
 users[0].posts;   // Already loaded
 users[0].profile; // Already loaded
 users[0].roles;   // Already loaded
+
+// Nested relationships (loads relationships of relationships)
+const posts = await Post.query()
+  .with('category.contentType', 'author.profile')
+  .get();
+
+posts[0].category;        // Already loaded
+posts[0].category.contentType; // Already loaded (nested)
+posts[0].author.profile;  // Already loaded (nested)
 ```
 
 ### Cache Management
