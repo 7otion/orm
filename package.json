@@ -1,5 +1,5 @@
 {
-	"name": "7otion-orm",
+	"name": "@7otion/orm",
 	"version": "0.0.1",
 	"author": "Burak Kartal",
 	"description": "A simple database-agnostic ORM for TypeScript that supports tauri's sql plugin.",
