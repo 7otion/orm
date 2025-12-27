@@ -39,3 +39,4 @@ export {
 	type TauriAdapterConfig,
 } from './plugins/adapters/tauri';
 export { MemoryResultCache } from './plugins/caching/memory';
+export { LocalStorageResultCache } from './plugins/caching/localstorage';

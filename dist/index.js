@@ -16,4 +16,5 @@ export { Relationship } from './relationships/relationship';
 export { SQLiteDialect } from './plugins/dialects/sqlite';
 export { TauriAdapter, } from './plugins/adapters/tauri';
 export { MemoryResultCache } from './plugins/caching/memory';
+export { LocalStorageResultCache } from './plugins/caching/localstorage';
 //# sourceMappingURL=index.js.map

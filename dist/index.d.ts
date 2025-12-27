@@ -19,4 +19,5 @@ export type { DatabaseRow, QueryValue, WhereValue, WhereOperator, OrderDirection
 export { SQLiteDialect } from './plugins/dialects/sqlite';
 export { TauriAdapter, type TauriAdapterConfig, } from './plugins/adapters/tauri';
 export { MemoryResultCache } from './plugins/caching/memory';
+export { LocalStorageResultCache } from './plugins/caching/localstorage';
 //# sourceMappingURL=index.d.ts.map
