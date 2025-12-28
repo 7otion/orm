@@ -65,6 +65,7 @@ export declare abstract class Model<T extends Model<T>> {
     private deriveTableName;
     private getTimestampConfig;
     static getTableName(): string;
+    static generateSlug(string: string): string;
     static query(): QueryBuilder<any>;
     static find(id: QueryValue): Promise<any>;
     static all(): Promise<any[]>;

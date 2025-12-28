@@ -214,6 +214,12 @@ export class Model {
         }
         return ModelClass._cachedTableName;
     }
+    static generateSlug(string) {
+        return string
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+    }
     static query() {
         const tableName = this.getTableName();
         return new QueryBuilder(this, tableName);
