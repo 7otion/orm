@@ -354,7 +354,7 @@ export class QueryBuilder<T extends Model<T>> {
 
 		// Call hook for custom post-load logic
 		if (typeof modelConstructor.afterEagerLoad === 'function') {
-			await modelConstructor.afterEagerLoad(models);
+			await modelConstructor.afterEagerLoad(relationships, models);
 		}
 	}
 
