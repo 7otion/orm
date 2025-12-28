@@ -292,6 +292,13 @@ export abstract class Model<T extends Model<T>> {
 		return ModelClass._cachedTableName;
 	}
 
+	static generateSlug(string: string): string {
+		return string
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, '-')
+			.replace(/^-+|-+$/g, '');
+	}
+
 	static query(): QueryBuilder<any> {
 		const tableName = this.getTableName();
 		return new QueryBuilder(this as any, tableName);
