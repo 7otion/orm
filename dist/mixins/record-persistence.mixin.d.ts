@@ -5,6 +5,7 @@
  */
 export declare class RecordPersistenceMixin {
     save(): Promise<this>;
+    protected generateSlugIfNeeded(): void;
     protected insert(): Promise<this>;
     protected update(): Promise<this>;
     delete(): Promise<boolean>;

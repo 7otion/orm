@@ -7,12 +7,30 @@ import { ORM } from '../orm';
 export class RecordPersistenceMixin {
     async save() {
         const self = this;
+        this.generateSlugIfNeeded();
         if (!self._exists) {
             return this.insert();
         }
         else {
             return this.update();
         }
+    }
+    generateSlugIfNeeded() {
+        const self = this;
+        const ModelClass = self.constructor;
+        // Check if model has slug property defined
+        const hasSlugProperty = 'slug' in self || 'slug' in ModelClass.prototype;
+        if (!hasSlugProperty)
+            return;
+        // Don't overwrite existing slug
+        if (self._attributes.slug)
+            return;
+        // Find source field (name or title)
+        const sourceField = self._attributes.name || self._attributes.title;
+        if (!sourceField || typeof sourceField !== 'string')
+            return;
+        // Generate slug
+        self._attributes.slug = ModelClass.generateSlug(sourceField);
     }
     async insert() {
         const orm = ORM.getInstance();
