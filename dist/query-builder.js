@@ -239,7 +239,8 @@ export class QueryBuilder {
                 // Single-level relationship (existing logic)
                 const relationship = relationships[relationName];
                 if (!relationship) {
-                    throw new Error(`Relationship '${relationName}' not found in static relationships constant`);
+                    // Skip unknown relationships - they might be handled by afterEagerLoad
+                    continue;
                 }
                 if (typeof relationship.eagerLoadFor === 'function') {
                     await relationship.eagerLoadFor(models, relationName);

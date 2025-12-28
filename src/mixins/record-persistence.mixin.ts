@@ -23,7 +23,8 @@ export class RecordPersistenceMixin {
 		const ModelClass = self.constructor;
 
 		// Check if model has slug property defined
-		const hasSlugProperty = 'slug' in self || 'slug' in ModelClass.prototype;
+		const hasSlugProperty =
+			'slug' in self || 'slug' in ModelClass.prototype;
 		if (!hasSlugProperty) return;
 
 		// Don't overwrite existing slug

@@ -185,11 +185,11 @@ export class QueryBuilder<T extends Model<T>> {
 	/**
 	 * Specify relationships to eager load
 	 * Supports nested relationships with dot notation
-	 * 
+	 *
 	 * @example
 	 * // Single-level relationships
 	 * User.query().with('posts', 'profile').get()
-	 * 
+	 *
 	 * // Nested relationships
 	 * Post.query().with('category.contentType').get()
 	 * User.query().with('posts.comments.author').get()
@@ -332,15 +332,18 @@ export class QueryBuilder<T extends Model<T>> {
 		for (const relationName of this.eagerLoad.keys()) {
 			// Check if this is a nested relationship (contains dots)
 			if (relationName.includes('.')) {
-				await this.loadNestedRelationship(models, relationName, relationships);
+				await this.loadNestedRelationship(
+					models,
+					relationName,
+					relationships,
+				);
 			} else {
 				// Single-level relationship (existing logic)
 				const relationship = relationships[relationName];
 
 				if (!relationship) {
-					throw new Error(
-						`Relationship '${relationName}' not found in static relationships constant`,
-					);
+					// Skip unknown relationships - they might be handled by afterEagerLoad
+					continue;
 				}
 
 				if (typeof relationship.eagerLoadFor === 'function') {
@@ -390,7 +393,9 @@ export class QueryBuilder<T extends Model<T>> {
 			);
 
 			// Filter out null/undefined related models
-			const validRelatedModels = relatedModels.filter(model => model != null);
+			const validRelatedModels = relatedModels.filter(
+				model => model != null,
+			);
 
 			if (validRelatedModels.length > 0) {
 				// Recursively load the remaining nested relationships
@@ -445,7 +450,11 @@ export class QueryBuilder<T extends Model<T>> {
 
 		// Check if this is still nested
 		if (remainingRelation.includes('.')) {
-			await this.loadNestedRelationship(relatedModels, remainingRelation, relationships);
+			await this.loadNestedRelationship(
+				relatedModels,
+				remainingRelation,
+				relationships,
+			);
 		} else {
 			// Load the final level relationship
 			const relationship = relationships[remainingRelation];
@@ -457,7 +466,10 @@ export class QueryBuilder<T extends Model<T>> {
 			}
 
 			if (typeof relationship.eagerLoadFor === 'function') {
-				await relationship.eagerLoadFor(relatedModels, remainingRelation);
+				await relationship.eagerLoadFor(
+					relatedModels,
+					remainingRelation,
+				);
 			}
 		}
 	}
