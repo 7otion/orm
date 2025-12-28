@@ -32,16 +32,6 @@ export class RelationshipLoaderMixin {
 	/**
 	 * Explicitly load a relationship asynchronously (non-Suspense)
 	 * Use this outside of React components or when not using Suspense
-	 * 
-	 * @param relationshipName - Name of the relationship to load
-	 * @returns Promise that resolves when the relationship is loaded
-	 * 
-	 * @example
-	 * ```typescript
-	 * const content = await contentRepo.find(contentId);
-	 * await content.load('category'); // Load relationship
-	 * console.log(content.category); // Now available
-	 * ```
 	 */
 	async load(relationshipName: string): Promise<void> {
 		const self = this as any;
