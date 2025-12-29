@@ -249,7 +249,7 @@ export class QueryBuilder {
         }
         // Call hook for custom post-load logic
         if (typeof modelConstructor.afterEagerLoad === 'function') {
-            await modelConstructor.afterEagerLoad(relationships, models);
+            await modelConstructor.afterEagerLoad(this.eagerLoad.keys(), models);
         }
     }
     /**
