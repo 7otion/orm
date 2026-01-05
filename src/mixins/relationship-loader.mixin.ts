@@ -67,22 +67,32 @@ export class RelationshipLoaderMixin {
 		const self = this as any;
 		const relationship = self.constructor.relationships[relationshipName];
 
-		if (!relationship) {
-			throw new Error(
-				`Relationship '${relationshipName}' not found in static relationships constant`,
-			);
-		}
+		if (relationship) {
+			// Standard relationship loading
+			if (typeof relationship.get !== 'function') {
+				throw new Error(
+					`Relationship '${relationshipName}' must have a get() method`,
+				);
+			}
 
-		if (typeof relationship.get !== 'function') {
-			throw new Error(
-				`Relationship '${relationshipName}' must have a get() method`,
-			);
-		}
+			// Use the proxy if available, otherwise fall back to raw instance
+			const instance = self._proxy || this;
+			const result = await relationship.get(instance);
+			self[`_${relationshipName}`] = result;
+		} else {
+			// Check for custom relationship loader
+			const loaderMethodName = `load${relationshipName.charAt(0).toUpperCase()}${relationshipName.slice(1)}`;
+			const loaderMethod = self.constructor[loaderMethodName];
 
-		// Use the proxy if available, otherwise fall back to raw instance
-		const instance = self._proxy || this;
-		const result = await relationship.get(instance);
-		self[`_${relationshipName}`] = result;
+			if (typeof loaderMethod === 'function') {
+				await loaderMethod([this]);
+				// Assume the loader sets the appropriate private property
+			} else {
+				throw new Error(
+					`Relationship '${relationshipName}' not found in static relationships constant and no custom loader '${loaderMethodName}' available`,
+				);
+			}
+		}
 	}
 
 	clearRelationships(): void {
