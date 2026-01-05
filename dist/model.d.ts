@@ -75,5 +75,9 @@ export declare abstract class Model<T extends Model<T>> {
     protected static belongsTo<R extends Model<R>>(related: any, foreignKey?: string, localKey?: string): BelongsTo<R>;
     protected static belongsToMany<R extends Model<R>>(related: any, pivotTable: string, foreignPivotKey?: string, relatedPivotKey?: string, parentKey?: string, relatedKey?: string): BelongsToMany<R>;
     protected static morphTo<R extends Model<R>>(config: MorphToConfig<R>): MorphTo<R>;
+    /**
+     * Refresh the model instance from the database
+     */
+    refresh(): Promise<void>;
 }
 //# sourceMappingURL=model.d.ts.map

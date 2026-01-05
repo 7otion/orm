@@ -255,6 +255,46 @@ export class Model {
     static morphTo(config) {
         return new MorphTo(this, config);
     }
+    /**
+     * Refresh the model instance from the database
+     */
+    async refresh() {
+        const self = this;
+        const config = this.getConfig();
+        const primaryKey = config.primaryKey || 'id';
+        const primaryKeyValue = self._attributes[primaryKey];
+        if (!primaryKeyValue) {
+            throw new Error('Cannot refresh model without a primary key value');
+        }
+        const loadedRelationships = [];
+        const ctor = Object.getPrototypeOf(self).constructor;
+        const relationships = ctor.relationships;
+        if (relationships) {
+            for (const relationName in relationships) {
+                const privateKey = `_${relationName}`;
+                if (privateKey in self && self[privateKey] !== undefined) {
+                    loadedRelationships.push(relationName);
+                }
+            }
+        }
+        const ModelClass = ctor;
+        const fresh = await ModelClass.query()
+            .where(primaryKey, primaryKeyValue)
+            .first();
+        if (!fresh) {
+            throw new Error(`Model with ${primaryKey}=${primaryKeyValue} no longer exists`);
+        }
+        self._attributes = { ...fresh._attributes };
+        self._original = { ...fresh._original };
+        self._exists = fresh._exists;
+        for (const relationName of loadedRelationships) {
+            const privateKey = `_${relationName}`;
+            const loadingKey = `_loading_${relationName}`;
+            delete self[privateKey];
+            delete self[loadingKey];
+            await self.load(relationName);
+        }
+    }
 }
 Model._relationshipsCache = new WeakMap();
 Model.config = {

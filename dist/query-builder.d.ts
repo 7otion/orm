@@ -32,6 +32,11 @@ export declare class QueryBuilder<T extends Model<T>> {
      */
     whereRaw(sql: string, bindings?: QueryValue[]): this;
     /**
+     * Add a WHERE IN clause to the query
+     * whereIn('status', ['active', 'pending'])
+     */
+    whereIn(column: keyof T | string, values: QueryValue[]): this;
+    /**
      * join('INNER', 'posts', 'posts.user_id', '=', 'users.id')
      */
     join(type: 'INNER' | 'LEFT' | 'RIGHT', table: string, first: string, operator: string, second: string): this;

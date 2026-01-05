@@ -90,6 +90,20 @@ export class QueryBuilder<T extends Model<T>> {
 	}
 
 	/**
+	 * Add a WHERE IN clause to the query
+	 * whereIn('status', ['active', 'pending'])
+	 */
+	whereIn(column: keyof T | string, values: QueryValue[]): this {
+		this.query.wheres.push({
+			type: 'basic',
+			column: String(column),
+			operator: 'IN',
+			value: values,
+		});
+		return this;
+	}
+
+	/**
 	 * join('INNER', 'posts', 'posts.user_id', '=', 'users.id')
 	 */
 	join(

@@ -374,6 +374,58 @@ export abstract class Model<T extends Model<T>> {
 	): MorphTo<R> {
 		return new MorphTo(this as any, config);
 	}
+
+	/**
+	 * Refresh the model instance from the database
+	 */
+	async refresh(): Promise<void> {
+		const self = this as any;
+		const config = this.getConfig();
+		const primaryKey = config.primaryKey || 'id';
+		const primaryKeyValue = self._attributes[primaryKey];
+
+		if (!primaryKeyValue) {
+			throw new Error('Cannot refresh model without a primary key value');
+		}
+
+		const loadedRelationships: string[] = [];
+		const ctor = Object.getPrototypeOf(self).constructor as typeof Model;
+		const relationships = ctor.relationships;
+
+		if (relationships) {
+			for (const relationName in relationships) {
+				const privateKey = `_${relationName}`;
+				if (privateKey in self && self[privateKey] !== undefined) {
+					loadedRelationships.push(relationName);
+				}
+			}
+		}
+
+		const ModelClass = ctor as any;
+		const fresh = await ModelClass.query()
+			.where(primaryKey, primaryKeyValue)
+			.first();
+
+		if (!fresh) {
+			throw new Error(
+				`Model with ${primaryKey}=${primaryKeyValue} no longer exists`,
+			);
+		}
+
+		self._attributes = { ...(fresh as any)._attributes };
+		self._original = { ...(fresh as any)._original };
+		self._exists = (fresh as any)._exists;
+
+		for (const relationName of loadedRelationships) {
+			const privateKey = `_${relationName}`;
+			const loadingKey = `_loading_${relationName}`;
+
+			delete self[privateKey];
+			delete self[loadingKey];
+
+			await self.load(relationName);
+		}
+	}
 }
 
 function applyMixins(derivedCtor: any, constructors: any[]) {

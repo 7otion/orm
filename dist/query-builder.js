@@ -63,6 +63,19 @@ export class QueryBuilder {
         return this;
     }
     /**
+     * Add a WHERE IN clause to the query
+     * whereIn('status', ['active', 'pending'])
+     */
+    whereIn(column, values) {
+        this.query.wheres.push({
+            type: 'basic',
+            column: String(column),
+            operator: 'IN',
+            value: values,
+        });
+        return this;
+    }
+    /**
      * join('INNER', 'posts', 'posts.user_id', '=', 'users.id')
      */
     join(type, table, first, operator, second) {
