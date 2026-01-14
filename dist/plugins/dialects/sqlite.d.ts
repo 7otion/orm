@@ -21,14 +21,14 @@ export declare class SQLiteDialect implements SqlDialect {
      * Example output:
      * UPDATE users SET "name" = ?, "email" = ?, "updated_at" = ? WHERE "id" = ?
      */
-    compileUpdate(table: string, data: Record<string, QueryValue>, primaryKey: string, id: QueryValue): CompiledQuery;
+    compileUpdate(table: string, data: Record<string, QueryValue>, primaryKey: string | string[], id: QueryValue | QueryValue[]): CompiledQuery;
     /**
      * Compile a DELETE statement
      *
      * Example output:
      * DELETE FROM users WHERE "id" = ?
      */
-    compileDelete(table: string, primaryKey: string, id: QueryValue): CompiledQuery;
+    compileDelete(table: string, primaryKey: string | string[], id: QueryValue | QueryValue[]): CompiledQuery;
     /**
      * Compile a COUNT query
      *

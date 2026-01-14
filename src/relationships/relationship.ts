@@ -49,7 +49,9 @@ export abstract class Relationship<T extends Model<T>> {
 		}
 
 		if (!localKey) {
-			this.localKey = this.parentConstructor.config?.primaryKey || 'id';
+			const pk = this.parentConstructor.config?.primaryKey || 'id';
+			// Relationships don't support composite primary keys - use first key
+			this.localKey = Array.isArray(pk) ? pk[0]! : pk;
 		} else {
 			this.localKey = localKey;
 		}

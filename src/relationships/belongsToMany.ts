@@ -54,9 +54,13 @@ export class BelongsToMany<T extends Model<T>> extends Relationship<T> {
 			this.relatedPivotKey = relatedPivotKey;
 		}
 
-		this.parentKey =
+		const parentPk =
 			parentKey || this.parentConstructor.config?.primaryKey || 'id';
-		this.relatedKey = relatedKey || related.config?.primaryKey || 'id';
+		const relatedPk = relatedKey || related.config?.primaryKey || 'id';
+
+		// Relationships don't support composite primary keys - use first key
+		this.parentKey = Array.isArray(parentPk) ? parentPk[0]! : parentPk;
+		this.relatedKey = Array.isArray(relatedPk) ? relatedPk[0]! : relatedPk;
 	}
 
 	/**

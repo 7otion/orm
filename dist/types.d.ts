@@ -82,7 +82,7 @@ export interface TimestampConfig {
  */
 export interface ModelConfig {
     table?: string;
-    primaryKey?: string;
+    primaryKey?: string | string[];
     timestamps?: boolean | TimestampConfig;
 }
 //# sourceMappingURL=types.d.ts.map

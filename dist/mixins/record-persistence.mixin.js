@@ -47,7 +47,10 @@ export class RecordPersistenceMixin {
             }
             const compiled = dialect.compileInsert(config.table, self._attributes);
             const insertedId = await adapter.insert(compiled.sql, compiled.bindings);
-            self._attributes[config.primaryKey] = insertedId;
+            // Only set auto-increment ID for single primary key
+            if (!Array.isArray(config.primaryKey)) {
+                self._attributes[config.primaryKey] = insertedId;
+            }
             self._exists = true;
             self._original = { ...self._attributes };
             orm.invalidateResultCache([config.table]);
@@ -78,8 +81,18 @@ export class RecordPersistenceMixin {
                 data[timestampConfig.updated_at] = now;
                 self._attributes[timestampConfig.updated_at] = now;
             }
-            const id = self._attributes[config.primaryKey];
-            const compiled = dialect.compileUpdate(config.table, data, config.primaryKey, id);
+            // Get primary key value(s)
+            const primaryKey = config.primaryKey;
+            let id;
+            if (Array.isArray(primaryKey)) {
+                // Composite primary key
+                id = primaryKey.map(key => self._attributes[key]);
+            }
+            else {
+                // Single primary key
+                id = self._attributes[primaryKey];
+            }
+            const compiled = dialect.compileUpdate(config.table, data, primaryKey, id);
             await adapter.execute(compiled.sql, compiled.bindings);
             self._original = { ...self._attributes };
             self.clearRelationships();
@@ -97,8 +110,18 @@ export class RecordPersistenceMixin {
             const dialect = orm.getDialect();
             const adapter = orm.getAdapter();
             const config = self.getConfig();
-            const id = self._attributes[config.primaryKey];
-            const compiled = dialect.compileDelete(config.table, config.primaryKey, id);
+            // Get primary key value(s)
+            const primaryKey = config.primaryKey;
+            let id;
+            if (Array.isArray(primaryKey)) {
+                // Composite primary key
+                id = primaryKey.map(key => self._attributes[key]);
+            }
+            else {
+                // Single primary key
+                id = self._attributes[primaryKey];
+            }
+            const compiled = dialect.compileDelete(config.table, primaryKey, id);
             await adapter.execute(compiled.sql, compiled.bindings);
             self._exists = false;
             orm.invalidateResultCache([config.table]);

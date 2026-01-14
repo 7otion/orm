@@ -67,7 +67,7 @@ export declare abstract class Model<T extends Model<T>> {
     static getTableName(): string;
     static generateSlug(string: string): string;
     static query(): QueryBuilder<any>;
-    static find(id: QueryValue): Promise<any>;
+    static find(id: QueryValue | QueryValue[]): Promise<any>;
     static all(): Promise<any[]>;
     static create(data: Record<string, any>): Promise<any>;
     protected static hasOne<R extends Model<R>>(related: any, foreignKey?: string, localKey?: string): HasOne<R>;

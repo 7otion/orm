@@ -29,7 +29,9 @@ export class BelongsTo<T extends Model<T>> extends Relationship<T> {
 		}
 
 		if (!localKey) {
-			this.localKey = this.related.config?.primaryKey || 'id';
+			const pk = this.related.config?.primaryKey || 'id';
+			// Relationships don't support composite primary keys - use first key
+			this.localKey = Array.isArray(pk) ? pk[0]! : pk;
 		}
 	}
 

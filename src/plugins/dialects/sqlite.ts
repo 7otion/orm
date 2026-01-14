@@ -150,14 +150,16 @@ export class SQLiteDialect implements SqlDialect {
 			// Composite primary key
 			const keyArray = primaryKey as string[];
 			const idArray = Array.isArray(id) ? (id as QueryValue[]) : [id];
-			
+
 			if (keyArray.length !== idArray.length) {
 				throw new Error(
 					`Primary key length mismatch: expected ${keyArray.length} values, got ${idArray.length}`,
 				);
 			}
 
-			const whereParts = keyArray.map(key => `${this.escapeIdentifier(key)} = ?`);
+			const whereParts = keyArray.map(
+				key => `${this.escapeIdentifier(key)} = ?`,
+			);
 			whereClause = whereParts.join(' AND ');
 			whereBindings = idArray;
 		} else {
@@ -191,14 +193,16 @@ export class SQLiteDialect implements SqlDialect {
 			// Composite primary key
 			const keyArray = primaryKey as string[];
 			const idArray = Array.isArray(id) ? (id as QueryValue[]) : [id];
-			
+
 			if (keyArray.length !== idArray.length) {
 				throw new Error(
 					`Primary key length mismatch: expected ${keyArray.length} values, got ${idArray.length}`,
 				);
 			}
 
-			const whereParts = keyArray.map(key => `${this.escapeIdentifier(key)} = ?`);
+			const whereParts = keyArray.map(
+				key => `${this.escapeIdentifier(key)} = ?`,
+			);
 			whereClause = whereParts.join(' AND ');
 			bindings = idArray;
 		} else {

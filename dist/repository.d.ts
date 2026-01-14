@@ -10,7 +10,7 @@ type PickFunctions<T> = Pick<T, {
 }[keyof T]>;
 export type IRepository<TModel extends Model<any>, TModelClass = any> = {
     query(): QueryBuilder<TModel>;
-    find(id: QueryValue): Promise<TModel | null>;
+    find(id: QueryValue | QueryValue[]): Promise<TModel | null>;
     all(): Promise<TModel[]>;
     create(data: Record<string, any>): Promise<TModel>;
 } & PickFunctions<StaticMethods<TModelClass>>;

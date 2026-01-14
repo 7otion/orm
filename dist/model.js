@@ -226,7 +226,27 @@ export class Model {
     }
     static async find(id) {
         const primaryKey = this.config.primaryKey || 'id';
-        return this.query().where(primaryKey, id).first();
+        // Handle composite primary keys
+        if (Array.isArray(primaryKey)) {
+            const idArray = Array.isArray(id) ? id : [id];
+            if (primaryKey.length !== idArray.length) {
+                throw new Error(`Primary key length mismatch: expected ${primaryKey.length} values, got ${idArray.length}`);
+            }
+            let query = this.query();
+            for (let i = 0; i < primaryKey.length; i++) {
+                const key = primaryKey[i];
+                const value = idArray[i];
+                if (key === undefined || value === undefined) {
+                    throw new Error('Unexpected undefined in composite primary key');
+                }
+                query = query.where(key, value);
+            }
+            return query.first();
+        }
+        // Handle single primary key
+        return this.query()
+            .where(primaryKey, id)
+            .first();
     }
     static async all() {
         return this.query().get();
@@ -262,9 +282,25 @@ export class Model {
         const self = this;
         const config = this.getConfig();
         const primaryKey = config.primaryKey || 'id';
-        const primaryKeyValue = self._attributes[primaryKey];
-        if (!primaryKeyValue) {
-            throw new Error('Cannot refresh model without a primary key value');
+        // Build WHERE conditions for composite or single primary key
+        let query = self.constructor.query();
+        if (Array.isArray(primaryKey)) {
+            // Composite primary key
+            for (const key of primaryKey) {
+                const value = self._attributes[key];
+                if (value === undefined || value === null) {
+                    throw new Error(`Cannot refresh model without primary key value for ${key}`);
+                }
+                query = query.where(key, value);
+            }
+        }
+        else {
+            // Single primary key
+            const primaryKeyValue = self._attributes[primaryKey];
+            if (!primaryKeyValue) {
+                throw new Error('Cannot refresh model without a primary key value');
+            }
+            query = query.where(primaryKey, primaryKeyValue);
         }
         const loadedRelationships = [];
         const ctor = Object.getPrototypeOf(self).constructor;
@@ -277,12 +313,12 @@ export class Model {
                 }
             }
         }
-        const ModelClass = ctor;
-        const fresh = await ModelClass.query()
-            .where(primaryKey, primaryKeyValue)
-            .first();
+        const fresh = await query.first();
         if (!fresh) {
-            throw new Error(`Model with ${primaryKey}=${primaryKeyValue} no longer exists`);
+            const keyStr = Array.isArray(primaryKey)
+                ? primaryKey.map(k => `${k}=${self._attributes[k]}`).join(', ')
+                : `${primaryKey}=${self._attributes[primaryKey]}`;
+            throw new Error(`Model with ${keyStr} no longer exists`);
         }
         self._attributes = { ...fresh._attributes };
         self._original = { ...fresh._original };
@@ -298,7 +334,6 @@ export class Model {
 }
 Model._relationshipsCache = new WeakMap();
 Model.config = {
-    primaryKey: 'id',
     timestamps: true,
 };
 function applyMixins(derivedCtor, constructors) {

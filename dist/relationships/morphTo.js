@@ -66,14 +66,16 @@ export class MorphTo {
             // Deduplicate IDs
             const uniqueForeignKeys = [...new Set(foreignKeys)];
             // Query all related models at once
-            const primaryKey = RelatedModel.config.primaryKey || 'id';
+            let pk = RelatedModel.config.primaryKey || 'id';
+            // Relationships don't support composite primary keys - use first key
+            pk = Array.isArray(pk) ? pk[0] : pk;
             const relatedModels = await RelatedModel.query()
-                .where(primaryKey, 'IN', uniqueForeignKeys)
+                .where(pk, 'IN', uniqueForeignKeys)
                 .get();
             // Create lookup map by primary key
             const relatedMap = new Map();
             for (const related of relatedModels) {
-                const id = related[primaryKey];
+                const id = related[pk];
                 relatedMap.set(id, related);
             }
             // Attach related models to parents

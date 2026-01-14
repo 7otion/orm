@@ -116,8 +116,27 @@ export class SQLiteDialect {
         const setClauses = columns
             .map(col => `${this.escapeIdentifier(col)} = ?`)
             .join(', ');
-        const sql = `UPDATE ${table} SET ${setClauses} WHERE ${this.escapeIdentifier(primaryKey)} = ?`;
-        const bindings = [...values, id];
+        // Build WHERE clause for single or composite primary key
+        let whereClause;
+        let whereBindings;
+        if (Array.isArray(primaryKey)) {
+            // Composite primary key
+            const keyArray = primaryKey;
+            const idArray = Array.isArray(id) ? id : [id];
+            if (keyArray.length !== idArray.length) {
+                throw new Error(`Primary key length mismatch: expected ${keyArray.length} values, got ${idArray.length}`);
+            }
+            const whereParts = keyArray.map(key => `${this.escapeIdentifier(key)} = ?`);
+            whereClause = whereParts.join(' AND ');
+            whereBindings = idArray;
+        }
+        else {
+            // Single primary key
+            whereClause = `${this.escapeIdentifier(primaryKey)} = ?`;
+            whereBindings = [id];
+        }
+        const sql = `UPDATE ${table} SET ${setClauses} WHERE ${whereClause}`;
+        const bindings = [...values, ...whereBindings];
         return { sql, bindings };
     }
     /**
@@ -127,8 +146,26 @@ export class SQLiteDialect {
      * DELETE FROM users WHERE "id" = ?
      */
     compileDelete(table, primaryKey, id) {
-        const sql = `DELETE FROM ${table} WHERE ${this.escapeIdentifier(primaryKey)} = ?`;
-        const bindings = [id];
+        // Build WHERE clause for single or composite primary key
+        let whereClause;
+        let bindings;
+        if (Array.isArray(primaryKey)) {
+            // Composite primary key
+            const keyArray = primaryKey;
+            const idArray = Array.isArray(id) ? id : [id];
+            if (keyArray.length !== idArray.length) {
+                throw new Error(`Primary key length mismatch: expected ${keyArray.length} values, got ${idArray.length}`);
+            }
+            const whereParts = keyArray.map(key => `${this.escapeIdentifier(key)} = ?`);
+            whereClause = whereParts.join(' AND ');
+            bindings = idArray;
+        }
+        else {
+            // Single primary key
+            whereClause = `${this.escapeIdentifier(primaryKey)} = ?`;
+            bindings = [id];
+        }
+        const sql = `DELETE FROM ${table} WHERE ${whereClause}`;
         return { sql, bindings };
     }
     /**
