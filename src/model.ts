@@ -304,9 +304,33 @@ export abstract class Model<T extends Model<T>> {
 		return new QueryBuilder(this as any, tableName);
 	}
 
-	static async find(id: QueryValue): Promise<any> {
+	static async find(id: QueryValue | QueryValue[]): Promise<any> {
 		const primaryKey = this.config.primaryKey || 'id';
-		return this.query().where(primaryKey, id).first();
+		
+		// Handle composite primary keys
+		if (Array.isArray(primaryKey)) {
+			const idArray = Array.isArray(id) ? id : [id];
+			
+			if (primaryKey.length !== idArray.length) {
+				throw new Error(
+					`Primary key length mismatch: expected ${primaryKey.length} values, got ${idArray.length}`,
+				);
+			}
+
+			let query = this.query();
+			for (let i = 0; i < primaryKey.length; i++) {
+				const key = primaryKey[i];
+				const value = idArray[i];
+				if (key === undefined || value === undefined) {
+					throw new Error('Unexpected undefined in composite primary key');
+				}
+				query = query.where(key, value);
+			}
+			return query.first();
+		}
+		
+		// Handle single primary key
+		return this.query().where(primaryKey as string, id as QueryValue).first();
 	}
 
 	static async all(): Promise<any[]> {
@@ -382,10 +406,26 @@ export abstract class Model<T extends Model<T>> {
 		const self = this as any;
 		const config = this.getConfig();
 		const primaryKey = config.primaryKey || 'id';
-		const primaryKeyValue = self._attributes[primaryKey];
 
-		if (!primaryKeyValue) {
-			throw new Error('Cannot refresh model without a primary key value');
+		// Build WHERE conditions for composite or single primary key
+		let query = (self.constructor as any).query();
+		
+		if (Array.isArray(primaryKey)) {
+			// Composite primary key
+			for (const key of primaryKey) {
+				const value = self._attributes[key];
+				if (value === undefined || value === null) {
+					throw new Error(`Cannot refresh model without primary key value for ${key}`);
+				}
+				query = query.where(key, value);
+			}
+		} else {
+			// Single primary key
+			const primaryKeyValue = self._attributes[primaryKey];
+			if (!primaryKeyValue) {
+				throw new Error('Cannot refresh model without a primary key value');
+			}
+			query = query.where(primaryKey, primaryKeyValue);
 		}
 
 		const loadedRelationships: string[] = [];
@@ -401,15 +441,13 @@ export abstract class Model<T extends Model<T>> {
 			}
 		}
 
-		const ModelClass = ctor as any;
-		const fresh = await ModelClass.query()
-			.where(primaryKey, primaryKeyValue)
-			.first();
+		const fresh = await query.first();
 
 		if (!fresh) {
-			throw new Error(
-				`Model with ${primaryKey}=${primaryKeyValue} no longer exists`,
-			);
+			const keyStr = Array.isArray(primaryKey) 
+				? primaryKey.map(k => `${k}=${self._attributes[k]}`).join(', ')
+				: `${primaryKey}=${self._attributes[primaryKey]}`;
+			throw new Error(`Model with ${keyStr} no longer exists`);
 		}
 
 		self._attributes = { ...(fresh as any)._attributes };

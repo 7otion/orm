@@ -20,7 +20,7 @@ type PickFunctions<T> = Pick<
 
 export type IRepository<TModel extends Model<any>, TModelClass = any> = {
 	query(): QueryBuilder<TModel>;
-	find(id: QueryValue): Promise<TModel | null>;
+	find(id: QueryValue | QueryValue[]): Promise<TModel | null>;
 	all(): Promise<TModel[]>;
 	create(data: Record<string, any>): Promise<TModel>;
 } & PickFunctions<StaticMethods<TModelClass>>;
@@ -35,7 +35,7 @@ export function getRepository<TModelClass extends ModelConstructor<any>>(
 			return ModelCtor.query();
 		},
 
-		async find(id: QueryValue) {
+		async find(id: QueryValue | QueryValue[]) {
 			return await ModelCtor.find(id);
 		},
 

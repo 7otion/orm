@@ -48,29 +48,29 @@ export interface SqlDialect {
 	 *
 	 * @param table - Table name
 	 * @param data - Column-value pairs to update
-	 * @param primaryKey - Primary key column name
-	 * @param id - Primary key value for WHERE clause
+	 * @param primaryKey - Primary key column name(s)
+	 * @param id - Primary key value(s) for WHERE clause
 	 * @returns Compiled SQL with bound parameters
 	 */
 	compileUpdate(
 		table: string,
 		data: Record<string, QueryValue>,
-		primaryKey: string,
-		id: QueryValue,
+		primaryKey: string | string[],
+		id: QueryValue | QueryValue[],
 	): CompiledQuery;
 
 	/**
 	 * Compile a DELETE statement
 	 *
 	 * @param table - Table name
-	 * @param primaryKey - Primary key column name
-	 * @param id - Primary key value for WHERE clause
+	 * @param primaryKey - Primary key column name(s)
+	 * @param id - Primary key value(s) for WHERE clause
 	 * @returns Compiled SQL with bound parameters
 	 */
 	compileDelete(
 		table: string,
-		primaryKey: string,
-		id: QueryValue,
+		primaryKey: string | string[],
+		id: QueryValue | QueryValue[],
 	): CompiledQuery;
 
 	/**

@@ -64,7 +64,10 @@ export class RecordPersistenceMixin {
 				compiled.bindings,
 			);
 
-			self._attributes[config.primaryKey] = insertedId;
+			// Only set auto-increment ID for single primary key
+			if (!Array.isArray(config.primaryKey)) {
+				self._attributes[config.primaryKey] = insertedId;
+			}
 			self._exists = true;
 			self._original = { ...self._attributes };
 
@@ -106,11 +109,22 @@ export class RecordPersistenceMixin {
 				self._attributes[timestampConfig.updated_at] = now;
 			}
 
-			const id = self._attributes[config.primaryKey];
+			// Get primary key value(s)
+			const primaryKey = config.primaryKey;
+			let id: QueryValue | QueryValue[];
+
+			if (Array.isArray(primaryKey)) {
+				// Composite primary key
+				id = primaryKey.map(key => self._attributes[key]);
+			} else {
+				// Single primary key
+				id = self._attributes[primaryKey];
+			}
+
 			const compiled = dialect.compileUpdate(
 				config.table,
 				data,
-				config.primaryKey,
+				primaryKey,
 				id,
 			);
 
@@ -137,10 +151,21 @@ export class RecordPersistenceMixin {
 			const adapter = orm.getAdapter();
 			const config = self.getConfig();
 
-			const id = self._attributes[config.primaryKey];
+			// Get primary key value(s)
+			const primaryKey = config.primaryKey;
+			let id: QueryValue | QueryValue[];
+
+			if (Array.isArray(primaryKey)) {
+				// Composite primary key
+				id = primaryKey.map(key => self._attributes[key]);
+			} else {
+				// Single primary key
+				id = self._attributes[primaryKey];
+			}
+
 			const compiled = dialect.compileDelete(
 				config.table,
-				config.primaryKey,
+				primaryKey,
 				id,
 			);
 

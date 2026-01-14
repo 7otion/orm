@@ -131,8 +131,8 @@ export class SQLiteDialect implements SqlDialect {
 	compileUpdate(
 		table: string,
 		data: Record<string, QueryValue>,
-		primaryKey: string,
-		id: QueryValue,
+		primaryKey: string | string[],
+		id: QueryValue | QueryValue[],
 	): CompiledQuery {
 		const columns = Object.keys(data);
 		const values = Object.values(data);
@@ -142,8 +142,32 @@ export class SQLiteDialect implements SqlDialect {
 			.map(col => `${this.escapeIdentifier(col)} = ?`)
 			.join(', ');
 
-		const sql = `UPDATE ${table} SET ${setClauses} WHERE ${this.escapeIdentifier(primaryKey)} = ?`;
-		const bindings = [...values, id];
+		// Build WHERE clause for single or composite primary key
+		let whereClause: string;
+		let whereBindings: QueryValue[];
+
+		if (Array.isArray(primaryKey)) {
+			// Composite primary key
+			const keyArray = primaryKey as string[];
+			const idArray = Array.isArray(id) ? (id as QueryValue[]) : [id];
+			
+			if (keyArray.length !== idArray.length) {
+				throw new Error(
+					`Primary key length mismatch: expected ${keyArray.length} values, got ${idArray.length}`,
+				);
+			}
+
+			const whereParts = keyArray.map(key => `${this.escapeIdentifier(key)} = ?`);
+			whereClause = whereParts.join(' AND ');
+			whereBindings = idArray;
+		} else {
+			// Single primary key
+			whereClause = `${this.escapeIdentifier(primaryKey as string)} = ?`;
+			whereBindings = [id as QueryValue];
+		}
+
+		const sql = `UPDATE ${table} SET ${setClauses} WHERE ${whereClause}`;
+		const bindings = [...values, ...whereBindings];
 
 		return { sql, bindings };
 	}
@@ -156,11 +180,34 @@ export class SQLiteDialect implements SqlDialect {
 	 */
 	compileDelete(
 		table: string,
-		primaryKey: string,
-		id: QueryValue,
+		primaryKey: string | string[],
+		id: QueryValue | QueryValue[],
 	): CompiledQuery {
-		const sql = `DELETE FROM ${table} WHERE ${this.escapeIdentifier(primaryKey)} = ?`;
-		const bindings = [id];
+		// Build WHERE clause for single or composite primary key
+		let whereClause: string;
+		let bindings: QueryValue[];
+
+		if (Array.isArray(primaryKey)) {
+			// Composite primary key
+			const keyArray = primaryKey as string[];
+			const idArray = Array.isArray(id) ? (id as QueryValue[]) : [id];
+			
+			if (keyArray.length !== idArray.length) {
+				throw new Error(
+					`Primary key length mismatch: expected ${keyArray.length} values, got ${idArray.length}`,
+				);
+			}
+
+			const whereParts = keyArray.map(key => `${this.escapeIdentifier(key)} = ?`);
+			whereClause = whereParts.join(' AND ');
+			bindings = idArray;
+		} else {
+			// Single primary key
+			whereClause = `${this.escapeIdentifier(primaryKey as string)} = ?`;
+			bindings = [id as QueryValue];
+		}
+
+		const sql = `DELETE FROM ${table} WHERE ${whereClause}`;
 
 		return { sql, bindings };
 	}

@@ -104,6 +104,6 @@ export interface TimestampConfig {
  */
 export interface ModelConfig {
 	table?: string; // Default: auto-derived from class name (User -> users)
-	primaryKey?: string; // Default: 'id'
+	primaryKey?: string | string[]; // Default: 'id' - can be composite ['key1', 'key2']
 	timestamps?: boolean | TimestampConfig; // Default: false
 }
