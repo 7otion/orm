@@ -169,6 +169,69 @@ export class SQLiteDialect {
         return { sql, bindings };
     }
     /**
+     * Compile a DELETE statement from a full query structure.
+     */
+    compileDeleteQuery(query) {
+        const bindings = [];
+        let sql = `DELETE FROM ${query.table}`;
+        // JOIN clauses (deletes with joins are supported by SQLite)
+        if (query.joins && query.joins.length > 0) {
+            for (const join of query.joins) {
+                sql += ` ${join.type} JOIN ${join.table} ON ${join.first} ${join.operator} ${join.second}`;
+            }
+        }
+        // WHERE clauses - same logic as compileSelect
+        if (query.wheres.length > 0) {
+            sql += ' WHERE ';
+            const whereClauses = [];
+            for (const where of query.wheres) {
+                if (where.type === 'raw') {
+                    whereClauses.push(`(${where.sql})`);
+                    if (where.bindings) {
+                        bindings.push(...where.bindings);
+                    }
+                }
+                else {
+                    const { column, operator, value } = where;
+                    if (operator === 'IN' || operator === 'NOT IN') {
+                        const values = Array.isArray(value) ? value : [value];
+                        const placeholders = values.map(() => '?').join(', ');
+                        whereClauses.push(`${column} ${operator} (${placeholders})`);
+                        bindings.push(...values);
+                    }
+                    else if (operator === 'IS' || operator === 'IS NOT') {
+                        whereClauses.push(`${column} ${operator} NULL`);
+                    }
+                    else {
+                        whereClauses.push(`${column} ${operator} ?`);
+                        bindings.push(value);
+                    }
+                }
+            }
+            sql += whereClauses.join(' AND ');
+        }
+        // ORDER BY/limit/offset allowed but don't affect deletion semantics
+        if (query.orders.length > 0) {
+            sql += ' ORDER BY ';
+            const orderClauses = query.orders.map(order => {
+                if (order.direction === 'raw') {
+                    return order.column;
+                }
+                return `${this.escapeIdentifier(order.column)} ${order.direction.toUpperCase()}`;
+            });
+            sql += orderClauses.join(', ');
+        }
+        if (query.limitValue !== undefined) {
+            sql += ' LIMIT ?';
+            bindings.push(query.limitValue);
+        }
+        if (query.offsetValue !== undefined) {
+            sql += ' OFFSET ?';
+            bindings.push(query.offsetValue);
+        }
+        return { sql, bindings };
+    }
+    /**
      * Compile a COUNT query
      *
      * Example output:

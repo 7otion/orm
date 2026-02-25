@@ -47,7 +47,21 @@ export interface SqlDialect {
      */
     compileUpdate(table: string, data: Record<string, QueryValue>, primaryKey: string | string[], id: QueryValue | QueryValue[]): CompiledQuery;
     /**
-     * Compile a DELETE statement
+     * Compile a DELETE statement by primary key.
+     *
+     * This is the helper invoked when you call `await someModel.delete();`
+     * inside a model instance. The ORM passes the table name and the
+     * primary-key value(s).
+     *
+     * Example implementation (SQLite-style):
+     * ```ts
+     * return {
+     *   sql: `DELETE FROM ${table} WHERE ${primaryKey} = ?`,
+     *   bindings: [id],
+     * };
+     * ```
+     *
+     * For query-builder operations, see {@link compileDeleteQuery}.
      *
      * @param table - Table name
      * @param primaryKey - Primary key column name(s)
@@ -55,6 +69,27 @@ export interface SqlDialect {
      * @returns Compiled SQL with bound parameters
      */
     compileDelete(table: string, primaryKey: string | string[], id: QueryValue | QueryValue[]): CompiledQuery;
+    /**
+     * Compile a DELETE statement based on an entire query structure.
+     *
+     * This is only required if you're using `QueryBuilder.delete()` in
+     * your application. The method must support whatever features
+     * `compileSelect` does (WHERE, JOIN, ORDER BY, LIMIT, etc.) and return
+     * a `DELETE` SQL string along with the appropriate bindings.
+     *
+     * Typical dialect implementations simply copy the body of
+     * `compileSelect` and replace the leading `SELECT …` with `DELETE`.
+     *
+     * Example:
+     * ```ts
+     * let sql = `DELETE FROM ${query.table}`;
+     * // append joins, wheres, order/limit/offset as in compileSelect
+     * ```
+     *
+     * @param query - The query structure built by QueryBuilder
+     * @returns Compiled SQL with bound parameters
+     */
+    compileDeleteQuery(query: QueryStructure): CompiledQuery;
     /**
      * Compile a COUNT query
      *

@@ -143,6 +143,20 @@ const user = await User.find(1);
 await user.delete();
 ```
 
+You can also delete via the query builder when you don't have a
+specific instance:
+
+```typescript
+// remove all inactive users
+await User.query().where('status', 'inactive').delete();
+
+// delete with join/limit if your dialect supports it
+await Post.query().join('INNER', 'comments', 'comments.post_id', '=', 'posts.id')
+  .where('comments.spam', true)
+  .limit(5)
+  .delete();
+```
+
 ### Dirty Tracking
 
 ```typescript
@@ -374,7 +388,18 @@ export class MyAdapter implements DatabaseAdapter {
 
 ## Creating Custom Dialects
 
-Implement the `SqlDialect` interface:
+Implement the `SqlDialect` interface. two helpers related to deletes are
+provided:
+
+* `compileDelete(table, primaryKey, id)` is meant for the
+  persistence mixin; the ORM passes it a table and a primary key value
+  when you call `someModel.delete()`.
+* `compileDeleteQuery(query)` is used by `QueryBuilder.delete()` and
+  must handle arbitrary WHERE clauses, joins, limits, etc.  Most of the
+  time you can copy the logic from `compileSelect` and simply start with
+  `DELETE FROM` instead of `SELECT`.
+
+Example implementation:
 
 ```typescript
 import { SqlDialect, QueryStructure, CompiledQuery } from '7otion-orm';
@@ -393,8 +418,16 @@ export class MyDialect implements SqlDialect {
     // Build UPDATE query
   }
 
+  // simple single‑row delete used by instance.delete()
   compileDelete(table: string, primaryKey: string, id: any): CompiledQuery {
-    // Build DELETE query
+    return { sql: `DELETE FROM ${table} WHERE ${primaryKey} = ?`, bindings: [id] };
+  }
+
+  // full query builder delete – reuses the QueryStructure
+  compileDeleteQuery(query: QueryStructure): CompiledQuery {
+    let sql = `DELETE FROM ${query.table}`;
+    // ...similar to compileSelect but using DELETE semantics...
+    return { sql, bindings: [] };
   }
 
   getCurrentTimestamp(): string {
@@ -402,6 +435,11 @@ export class MyDialect implements SqlDialect {
   }
 }
 ```
+
+The ORM ships with a few dialects (SQLite, Postgres, etc.) as examples.
+You only need to implement `compileDeleteQuery` if you intend to use the
+builder’s `.delete()` method—otherwise the simple `compileDelete` is
+all that’s required.
 
 ## License
 

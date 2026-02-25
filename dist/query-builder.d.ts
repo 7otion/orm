@@ -93,6 +93,19 @@ export declare class QueryBuilder<T extends Model<T>> {
         data: T[];
         total: number;
     }>;
+    /**
+     * Delete the records matching the current query.
+     *
+     * This method builds a DELETE statement by transforming the SQL
+     * produced by the dialect's `compileSelect`. We reuse the same
+     * bindings and preserve WHERE / JOIN / ORDER clauses. The query is
+     * executed inside the ORM write queue so it is safe to run in
+     * transactions and will invalidate any cached results for the tables
+     * involved.
+     *
+     * The return value is the number of rows affected by the delete.
+     */
+    delete(): Promise<number>;
     private hydrate;
     private loadRelationships;
     /**

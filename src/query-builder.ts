@@ -319,6 +319,48 @@ export class QueryBuilder<T extends Model<T>> {
 		return { data: models, total };
 	}
 
+	/**
+	 * Delete the records matching the current query.
+	 *
+	 * This method builds a DELETE statement by transforming the SQL
+	 * produced by the dialect's `compileSelect`. We reuse the same
+	 * bindings and preserve WHERE / JOIN / ORDER clauses. The query is
+	 * executed inside the ORM write queue so it is safe to run in
+	 * transactions and will invalidate any cached results for the tables
+	 * involved.
+	 *
+	 * The return value is the number of rows affected by the delete.
+	 */
+	async delete(): Promise<number> {
+		// apply relationship constraint if this query came from a
+		// relationship helper
+		if (this.relationshipConstraint) {
+			this.relationshipConstraint(this);
+		}
+
+		const orm = ORM.getInstance();
+		return orm.queueWrite(async () => {
+			const dialect = orm.getDialect();
+			const adapter = orm.getAdapter();
+
+			// Use dialect helper for query-based deletes. this keeps SQL
+			// generation inside each dialect and avoids fragile string
+			// manipulation.
+			const compiled = dialect.compileDeleteQuery(this.query);
+
+			const affected = await adapter.execute(
+				compiled.sql,
+				compiled.bindings,
+			);
+
+			// invalidate cache for any tables touched by the query
+			const tables = this.extractTableNames();
+			orm.invalidateResultCache(tables);
+
+			return affected;
+		});
+	}
+
 	private hydrate(row: DatabaseRow): T {
 		const model = new this.modelClass();
 

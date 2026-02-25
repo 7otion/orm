@@ -30,6 +30,10 @@ export declare class SQLiteDialect implements SqlDialect {
      */
     compileDelete(table: string, primaryKey: string | string[], id: QueryValue | QueryValue[]): CompiledQuery;
     /**
+     * Compile a DELETE statement from a full query structure.
+     */
+    compileDeleteQuery(query: QueryStructure): CompiledQuery;
+    /**
      * Compile a COUNT query
      *
      * Example output:

@@ -4,7 +4,7 @@
     "": {
       "name": "7otion-orm",
       "devDependencies": {
-        "typescript": "^5.0.0",
+        "typescript": "^5.9.3",
       },
       "peerDependencies": {
         "@tauri-apps/plugin-sql": "^2.0.0",
