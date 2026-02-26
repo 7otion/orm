@@ -5,7 +5,7 @@
 	"description": "A simple database-agnostic ORM for TypeScript that supports tauri's sql plugin.",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/7otion/7otion-orm"
+		"url": "https://github.com/7otion/orm"
 	},
 	"files": [
 		"dist",
