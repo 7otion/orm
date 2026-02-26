@@ -23,14 +23,16 @@
 	],
 	"license": "MIT",
 	"scripts": {
-		"build": "tsc",
-		"watch": "tsc --watch",
+		"build": "rm -rf dist && tsc --emitDeclarationOnly && esbuild src/index.ts --bundle --format=cjs --minify --outfile=dist/index.js && esbuild src/index.ts --bundle --format=esm --minify --outfile=dist/index.mjs",
+		"watch": "tsc --watch --preserveWatchOutput",
 		"format": "bunx prettier --write '**/*.{js,jsx,ts,tsx,json,css}' --ignore-path .prettierignore",
 		"clean": "rm -rf dist"
 	},
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
 	"devDependencies": {
+		"esbuild": "^0.27.3",
+		"terser": "^5.46.0",
 		"typescript": "^5.9.3"
 	},
 	"peerDependencies": {
