@@ -12,6 +12,7 @@ export declare class BelongsToMany<T extends Model<T>> extends Relationship<T> {
     private parentKey;
     private relatedKey;
     constructor(parent: ModelConstructor<any> | Model<any>, related: ModelConstructor<T>, pivotTable: string, foreignPivotKey?: string, relatedPivotKey?: string, parentKey?: string, relatedKey?: string);
+    getOwnerFields(): string[];
     /**
      * Get all related models for a parent instance
      * Uses a JOIN to connect through the pivot table

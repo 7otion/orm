@@ -63,6 +63,10 @@ export class BelongsToMany<T extends Model<T>> extends Relationship<T> {
 		this.relatedKey = Array.isArray(relatedPk) ? relatedPk[0]! : relatedPk;
 	}
 
+	getOwnerFields(): string[] {
+		return [this.parentKey];
+	}
+
 	/**
 	 * Get all related models for a parent instance
 	 * Uses a JOIN to connect through the pivot table

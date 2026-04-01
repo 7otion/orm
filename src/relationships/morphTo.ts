@@ -22,6 +22,10 @@ export class MorphTo<T extends Model<T>> {
 		private config: MorphToConfig<T>,
 	) {}
 
+	getOwnerFields(): string[] {
+		return [this.config.foreignKeyField, this.config.discriminatorField];
+	}
+
 	async get(parent?: Model<any>): Promise<T | null> {
 		const instance = parent || this.parent;
 		const discriminatorValue = instance[this.config.discriminatorField];

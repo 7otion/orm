@@ -14,6 +14,10 @@ export declare class RelationshipLoaderMixin {
      */
     load(relationshipName: string): Promise<void>;
     private loadRelationship;
-    clearRelationships(): void;
+    /**
+     * Selectively clear only the relationships whose owner-side key(s) appear in
+     * the provided list of dirty field names.
+     */
+    protected clearAffectedRelationships(dirtyFields: string[]): string[];
 }
 //# sourceMappingURL=relationship-loader.mixin.d.ts.map

@@ -86,7 +86,8 @@ export class RecordPersistenceMixin {
 		}
 
 		const orm = ORM.getInstance();
-		return orm.queueWrite(async () => {
+
+		const clearedRelationships = await orm.queueWrite(async () => {
 			const dialect = orm.getDialect();
 			const adapter = orm.getAdapter();
 			const config = self.getConfig();
@@ -95,7 +96,7 @@ export class RecordPersistenceMixin {
 			const dirtyFields = self.getDirty();
 
 			if (dirtyFields.length === 0) {
-				return this;
+				return [] as string[];
 			}
 
 			const data: Record<string, QueryValue> = {};
@@ -131,12 +132,20 @@ export class RecordPersistenceMixin {
 			await adapter.execute(compiled.sql, compiled.bindings);
 
 			self._original = { ...self._attributes };
-			self.clearRelationships();
+
+			const cleared: string[] =
+				self.clearAffectedRelationships(dirtyFields);
 
 			orm.invalidateResultCache([config.table]);
 
-			return this;
+			return cleared;
 		});
+
+		await Promise.all(
+			clearedRelationships.map((name: string) => self.load(name)),
+		);
+
+		return this;
 	}
 
 	async delete(): Promise<boolean> {

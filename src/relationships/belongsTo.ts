@@ -35,6 +35,10 @@ export class BelongsTo<T extends Model<T>> extends Relationship<T> {
 		}
 	}
 
+	getOwnerFields(): string[] {
+		return [this.foreignKey];
+	}
+
 	/**
 	 * Get the related model for a parent instance
 	 * Queries with: WHERE local_key = parent's foreign key value LIMIT 1

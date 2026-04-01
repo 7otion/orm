@@ -15,6 +15,7 @@ export declare class MorphTo<T extends Model<T>> {
     private parent;
     private config;
     constructor(parent: any, config: MorphToConfig<T>);
+    getOwnerFields(): string[];
     get(parent?: Model<any>): Promise<T | null>;
     eagerLoadFor(models: Model<any>[], relationName: string): Promise<void>;
 }

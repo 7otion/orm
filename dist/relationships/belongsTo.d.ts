@@ -7,6 +7,7 @@ import { Relationship } from './relationship';
 import type { Model } from '../model';
 export declare class BelongsTo<T extends Model<T>> extends Relationship<T> {
     constructor(parent: any, related: any, foreignKey?: string, localKey?: string);
+    getOwnerFields(): string[];
     /**
      * Get the related model for a parent instance
      * Queries with: WHERE local_key = parent's foreign key value LIMIT 1

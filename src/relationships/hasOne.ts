@@ -9,6 +9,10 @@ import { QueryBuilder } from '../query-builder';
 import type { Model } from '../model';
 
 export class HasOne<T extends Model<T>> extends Relationship<T> {
+	getOwnerFields(): string[] {
+		return [this.localKey];
+	}
+
 	/**
 	 * Get the related model for a parent instance
 	 * Queries with: WHERE foreign_key = parent's local key value LIMIT 1

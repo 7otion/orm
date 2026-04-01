@@ -9,6 +9,10 @@ import { QueryBuilder } from '../query-builder';
 import type { Model } from '../model';
 
 export class HasMany<T extends Model<T>> extends Relationship<T> {
+	getOwnerFields(): string[] {
+		return [this.localKey];
+	}
+
 	/**
 	 * Get all related models for a parent instance
 	 * Queries with: WHERE foreign_key = parent's local key value

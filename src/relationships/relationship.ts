@@ -87,6 +87,11 @@ export abstract class Relationship<T extends Model<T>> {
 	): Promise<void>;
 
 	/**
+	 * Returns the field name(s) on the owner model that this relationship depends on.
+	 */
+	abstract getOwnerFields(): string[];
+
+	/**
 	 * Get the related model class
 	 */
 	getRelated(): ModelConstructor<T> {

@@ -256,7 +256,6 @@ user.name = 'Updated';
 await user.save(); // Auto-clears all cached relationships
 
 // Manual operations
-user.clearRelationships(); // Clear cache
 await user.refresh();      // Reload from database + clear cache
 ```
 

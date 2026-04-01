@@ -95,14 +95,28 @@ export class RelationshipLoaderMixin {
 		}
 	}
 
-	clearRelationships(): void {
+	/**
+	 * Selectively clear only the relationships whose owner-side key(s) appear in
+	 * the provided list of dirty field names.
+	 */
+	protected clearAffectedRelationships(dirtyFields: string[]): string[] {
 		const self = this as any;
+		const cleared: string[] = [];
 
 		for (const relationName in self.constructor.relationships) {
+			const relationship = self.constructor.relationships[relationName];
+			const ownerFields: string[] = relationship.getOwnerFields();
+
+			const isAffected = ownerFields.some(f => dirtyFields.includes(f));
+			if (!isAffected) continue;
+
 			const privateProp = `_${relationName}`;
 			if (privateProp in self) {
 				delete self[privateProp];
+				cleared.push(relationName);
 			}
 		}
+
+		return cleared;
 	}
 }

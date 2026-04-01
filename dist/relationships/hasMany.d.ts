@@ -6,6 +6,7 @@
 import { Relationship } from './relationship';
 import type { Model } from '../model';
 export declare class HasMany<T extends Model<T>> extends Relationship<T> {
+    getOwnerFields(): string[];
     /**
      * Get all related models for a parent instance
      * Queries with: WHERE foreign_key = parent's local key value
