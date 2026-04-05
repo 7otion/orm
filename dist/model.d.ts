@@ -64,6 +64,8 @@ export declare abstract class Model<T extends Model<T>> {
     protected getConfig(): ModelConfig;
     private deriveTableName;
     private getTimestampConfig;
+    get createdAt(): Date | null;
+    get updatedAt(): Date | null;
     static getTableName(): string;
     static generateSlug(string: string): string;
     static query(): QueryBuilder<any>;

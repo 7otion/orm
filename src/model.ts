@@ -265,6 +265,20 @@ export abstract class Model<T extends Model<T>> {
 		return config.timestamps;
 	}
 
+	get createdAt(): Date | null {
+		const tsConfig = this.getTimestampConfig();
+		if (!tsConfig) return null;
+		const val = (this as any)._attributes[tsConfig.created_at];
+		return val ? new Date(val) : null;
+	}
+
+	get updatedAt(): Date | null {
+		const tsConfig = this.getTimestampConfig();
+		if (!tsConfig) return null;
+		const val = (this as any)._attributes[tsConfig.updated_at];
+		return val ? new Date(val) : null;
+	}
+
 	static getTableName(): string {
 		const ModelClass = this as unknown as ModelConstructor<any>;
 		if (ModelClass.config.table) {
