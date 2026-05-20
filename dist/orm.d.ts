@@ -59,6 +59,7 @@ export declare class ORM {
     static reInitialize(config: ORMConfig): void;
     static getInstance(): ORM;
     getAdapter(): DatabaseAdapter;
+    close(): Promise<void>;
     getDialect(): SqlDialect;
     /**
      * Execute a callback within a database transaction

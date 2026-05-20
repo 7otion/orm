@@ -4,6 +4,7 @@ import type { DatabaseRow, QueryValue } from '../../types';
 type TauriDatabase = {
 	execute(sql: string, bindValues?: unknown[]): Promise<any>;
 	select<T>(sql: string, bindValues?: unknown[]): Promise<T[]>;
+	close(database?: string): Promise<boolean>;
 };
 
 type TauriDatabaseModule = {
@@ -172,5 +173,13 @@ export class TauriAdapter implements DatabaseAdapter {
 
 	inTransaction(): boolean {
 		return this.inTransactionFlag;
+	}
+
+	async close(): Promise<void> {
+		if (this.db) {
+			await this.db.close(this.config.database);
+			this.db = null;
+			this.initPromise = null;
+		}
 	}
 }

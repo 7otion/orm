@@ -221,6 +221,10 @@ export class ORM {
 		return this.adapter;
 	}
 
+	async close(): Promise<void> {
+		await this.adapter.close();
+	}
+
 	getDialect(): SqlDialect {
 		return this.dialect;
 	}

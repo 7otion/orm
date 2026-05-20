@@ -63,5 +63,11 @@ export interface DatabaseAdapter {
      * Useful for nested transaction detection
      */
     inTransaction(): boolean;
+    /**
+     * Close the database connection and release all held resources.
+     * After calling this, the adapter must be re-initialized before use.
+     * Adapters that do not manage an explicit connection may implement as a no-op.
+     */
+    close(): Promise<void>;
 }
 //# sourceMappingURL=adapter.d.ts.map

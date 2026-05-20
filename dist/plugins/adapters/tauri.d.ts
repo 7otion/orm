@@ -24,5 +24,6 @@ export declare class TauriAdapter implements DatabaseAdapter {
     commit(): Promise<void>;
     rollback(): Promise<void>;
     inTransaction(): boolean;
+    close(): Promise<void>;
 }
 //# sourceMappingURL=tauri.d.ts.map
