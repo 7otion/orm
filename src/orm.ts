@@ -204,6 +204,10 @@ export class ORM {
 		}
 	}
 
+	static reInitialize(config: ORMConfig): void {
+		ORM.instance = new ORM(config);
+	}
+
 	static getInstance(): ORM {
 		if (!ORM.instance) {
 			throw new Error(

@@ -56,6 +56,7 @@ export declare class ORM {
     private makeCacheKey;
     setResultCacheDisabled(disabled: boolean): void;
     static initialize(config: ORMConfig): void;
+    static reInitialize(config: ORMConfig): void;
     static getInstance(): ORM;
     getAdapter(): DatabaseAdapter;
     getDialect(): SqlDialect;
