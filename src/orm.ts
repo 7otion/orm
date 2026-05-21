@@ -204,7 +204,11 @@ export class ORM {
 		}
 	}
 
-	static reInitialize(config: ORMConfig): void {
+	static async reInitialize(config: ORMConfig): Promise<void> {
+		if (ORM.instance) {
+			await ORM.instance.close();
+		}
+
 		ORM.instance = new ORM(config);
 	}
 
