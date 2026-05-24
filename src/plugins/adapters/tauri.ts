@@ -177,6 +177,10 @@ export class TauriAdapter implements DatabaseAdapter {
 
 	async close(): Promise<void> {
 		if (this.db) {
+			console.log(
+				'🔹 Closing Tauri database connection for:',
+				this.config.database,
+			);
 			await this.db.close(this.config.database);
 			this.db = null;
 			this.initPromise = null;

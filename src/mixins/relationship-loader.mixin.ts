@@ -26,6 +26,10 @@ export class RelationshipLoaderMixin {
 		});
 
 		self[loadingKey] = promise;
+
+		console.warn(
+			`Relationship '${relationshipName}' is being loaded asynchronously. This may cause a delay in rendering. Consider preloading this relationship or using the load() method outside of React components.`,
+		);
 		throw promise;
 	}
 
