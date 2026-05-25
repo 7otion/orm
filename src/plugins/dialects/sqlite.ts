@@ -344,10 +344,10 @@ export class SQLiteDialect implements SqlDialect {
 	/**
 	 * Get current timestamp for SQLite
 	 *
-	 * Returns ISO datetime string compatible with SQLite
+	 * Returns unix seconds, matching INTEGER DEFAULT (unixepoch()) columns.
 	 */
-	getCurrentTimestamp(): string {
-		return new Date().toISOString();
+	getCurrentTimestamp(): number {
+		return Math.floor(Date.now() / 1000);
 	}
 
 	/**

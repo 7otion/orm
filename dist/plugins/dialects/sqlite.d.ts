@@ -43,9 +43,9 @@ export declare class SQLiteDialect implements SqlDialect {
     /**
      * Get current timestamp for SQLite
      *
-     * Returns ISO datetime string compatible with SQLite
+     * Returns unix seconds, matching INTEGER DEFAULT (unixepoch()) columns.
      */
-    getCurrentTimestamp(): string;
+    getCurrentTimestamp(): number;
     /**
      * Escape an identifier (table/column name) for SQLite
      *

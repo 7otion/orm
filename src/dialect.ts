@@ -121,7 +121,7 @@ export interface SqlDialect {
 	 * Get the current timestamp in database-specific format
 	 * Used for timestamp fields (created_at, updated_at)
 	 *
-	 * @returns SQL expression for current timestamp
+	 * @returns Current timestamp value to store
 	 */
-	getCurrentTimestamp(): string;
+	getCurrentTimestamp(): number | string;
 }
