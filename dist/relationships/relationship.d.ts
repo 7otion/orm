@@ -13,12 +13,15 @@
  * - Eager loading: use with() on the parent query
  */
 import type { Model, ModelConstructor } from '../model';
+type RelatedResolver<T extends Model<T>> = ModelConstructor<T> | (() => ModelConstructor<T>);
 export declare abstract class Relationship<T extends Model<T>> {
     protected parentConstructor: ModelConstructor<any>;
-    protected related: ModelConstructor<T>;
+    private _related;
+    private _resolvedRelated;
     protected foreignKey: string;
     protected localKey: string;
-    constructor(parent: ModelConstructor<any> | Model<any>, related: any, foreignKey?: string, localKey?: string);
+    protected get related(): ModelConstructor<T>;
+    constructor(parent: ModelConstructor<any> | Model<any>, related: RelatedResolver<T>, foreignKey?: string, localKey?: string);
     protected getParentKeyValue(parent: Model<any>): any;
     /**
      * Get related model(s) for a parent instance
@@ -57,4 +60,5 @@ export declare abstract class Relationship<T extends Model<T>> {
      */
     getLocalKey(): string;
 }
+export {};
 //# sourceMappingURL=relationship.d.ts.map
