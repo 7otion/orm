@@ -179,6 +179,19 @@ export abstract class Model<T extends Model<T>> {
 					return false;
 				}
 
+				// A declared relationship assigned directly (e.g.
+				// `asset.file = file`) must be stored in its backing field
+				// (`_file`), the same place loaders write to and the getter
+				// reads from — NOT in _attributes, where save() would try to
+				// persist it as a non-existent column.
+				const ctor = Object.getPrototypeOf(target)
+					.constructor as typeof Model;
+				const relationships = ctor.relationships;
+				if (relationships && relationships[prop as string]) {
+					target[`_${prop as string}`] = value;
+					return true;
+				}
+
 				// Store in _attributes for data properties
 				target._attributes[prop as string] = value;
 				return true;
