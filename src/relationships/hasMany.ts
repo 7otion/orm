@@ -30,13 +30,19 @@ export class HasMany<T extends Model<T>> extends Relationship<T> {
 		models: Model<any>[],
 		relationName: string,
 	): Promise<void> {
+		const privateKey = `_${relationName}`;
+
+		if (models.every(m => (m as any)[privateKey] !== undefined)) return;
+
 		const localValues = models.map(model => (model as any)[this.localKey]);
 
 		// Skip if all foreign key values are null/undefined
 		const hasNonNullValue = localValues.some(val => val != null);
 		if (!hasNonNullValue) {
 			for (const model of models) {
-				(model as any)[`_${relationName}`] = [];
+				if ((model as any)[privateKey] === undefined) {
+					(model as any)[privateKey] = [];
+				}
 			}
 			return;
 		}
@@ -63,11 +69,12 @@ export class HasMany<T extends Model<T>> extends Relationship<T> {
 		}
 
 		// Attach related models to parents using _relationshipName pattern
-		// This allows getWithSuspense() to access loaded data
+		// This allows getWithSuspense() to access loaded data.
+		// Skip models that already have this relation set (partial-load guard).
 		for (const model of models) {
+			if ((model as any)[privateKey] !== undefined) continue;
 			const localValue = (model as any)[this.localKey];
-			const related = relatedMap.get(localValue) || [];
-			(model as any)[`_${relationName}`] = related;
+			(model as any)[privateKey] = relatedMap.get(localValue) ?? [];
 		}
 	}
 }
