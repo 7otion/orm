@@ -415,6 +415,15 @@ export class QueryBuilder<T extends Model<T>> {
 				models,
 			);
 		}
+
+		// Stamp loaded paths onto each model so refresh() can replay them
+		for (const model of models) {
+			const m = model as any;
+			if (!m._loadedPaths) m._loadedPaths = new Set<string>();
+			for (const path of this.eagerLoad.keys()) {
+				m._loadedPaths.add(path);
+			}
+		}
 	}
 
 	/**

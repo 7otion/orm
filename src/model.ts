@@ -430,9 +430,12 @@ export abstract class Model<T extends Model<T>> {
 	}
 
 	/**
-	 * Refresh the model instance from the database
+	 * Refresh the model instance from the database.
+	 *
+	 * refresh()              — reloads all previously eager-loaded relationships (including nested)
+	 * refresh(['a', 'b.c']) — reloads only the specified relationships instead
 	 */
-	async refresh(): Promise<void> {
+	async refresh(relationships?: string[]): Promise<void> {
 		const self = this as any;
 		const config = this.getConfig();
 		const primaryKey = config.primaryKey || 'id';
@@ -441,7 +444,6 @@ export abstract class Model<T extends Model<T>> {
 		let query = (self.constructor as any).query();
 
 		if (Array.isArray(primaryKey)) {
-			// Composite primary key
 			for (const key of primaryKey) {
 				const value = self._attributes[key];
 				if (value === undefined || value === null) {
@@ -452,7 +454,6 @@ export abstract class Model<T extends Model<T>> {
 				query = query.where(key, value);
 			}
 		} else {
-			// Single primary key
 			const primaryKeyValue = self._attributes[primaryKey];
 			if (!primaryKeyValue) {
 				throw new Error(
@@ -462,17 +463,13 @@ export abstract class Model<T extends Model<T>> {
 			query = query.where(primaryKey, primaryKeyValue);
 		}
 
-		const loadedRelationships: string[] = [];
-		const ctor = Object.getPrototypeOf(self).constructor as typeof Model;
-		const relationships = ctor.relationships;
+		// Determine which paths to reload
+		const paths: string[] = relationships ?? [
+			...((self._loadedPaths as Set<string>) ?? new Set<string>()),
+		];
 
-		if (relationships) {
-			for (const relationName in relationships) {
-				const privateKey = `_${relationName}`;
-				if (privateKey in self && self[privateKey] !== undefined) {
-					loadedRelationships.push(relationName);
-				}
-			}
+		if (paths.length > 0) {
+			query = query.with(...paths);
 		}
 
 		const fresh = await query.first();
@@ -484,18 +481,23 @@ export abstract class Model<T extends Model<T>> {
 			throw new Error(`Model with ${keyStr} no longer exists`);
 		}
 
+		// Copy scalar attributes
 		self._attributes = { ...(fresh as any)._attributes };
 		self._original = { ...(fresh as any)._original };
 		self._exists = (fresh as any)._exists;
 
-		for (const relationName of loadedRelationships) {
-			const privateKey = `_${relationName}`;
-			const loadingKey = `_loading_${relationName}`;
+		const topLevel = new Set(paths.map(p => p.split('.')[0]!));
+		for (const rel of topLevel) {
+			const privateKey = `_${rel}`;
+			const freshVal = (fresh as any)[privateKey];
+			if (freshVal !== undefined) {
+				self[privateKey] = freshVal;
+				delete self[`_loading_${rel}`];
+			}
+		}
 
-			delete self[privateKey];
-			delete self[loadingKey];
-
-			await self.load(relationName);
+		if (relationships !== undefined) {
+			self._loadedPaths = new Set(relationships);
 		}
 	}
 }
