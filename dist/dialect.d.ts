@@ -91,6 +91,19 @@ export interface SqlDialect {
      */
     compileDeleteQuery(query: QueryStructure): CompiledQuery;
     /**
+     * Compile an UPDATE statement from a full query structure — the bulk
+     * counterpart to {@link compileUpdate}, for `QueryBuilder.update()`.
+     *
+     * Must support whatever `compileSelect` does for WHERE clauses, the same
+     * way `compileDeleteQuery` does. SQLite's `UPDATE` has no `JOIN` support,
+     * so unlike `compileDeleteQuery` this does not need to handle joins.
+     *
+     * @param query - The query structure built by QueryBuilder
+     * @param data - Column-value pairs to update
+     * @returns Compiled SQL with bound parameters
+     */
+    compileUpdateQuery(query: QueryStructure, data: Record<string, QueryValue>): CompiledQuery;
+    /**
      * Compile a COUNT query
      *
      * @param query - The query structure built by QueryBuilder

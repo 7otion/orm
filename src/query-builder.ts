@@ -361,6 +361,40 @@ export class QueryBuilder<T extends Model<T>> {
 		});
 	}
 
+	/**
+	 * Update the records matching the current query with `data`, in a single
+	 * SQL statement rather than one write per matched row.
+	 *
+	 * Mirrors `delete()` above: runs inside the ORM write queue so it's safe
+	 * alongside transactions, and invalidates the cache for every table the
+	 * query touches.
+	 *
+	 * The return value is the number of rows affected by the update.
+	 */
+	async update(data: Record<string, QueryValue>): Promise<number> {
+		if (this.relationshipConstraint) {
+			this.relationshipConstraint(this);
+		}
+
+		const orm = ORM.getInstance();
+		return orm.queueWrite(async () => {
+			const dialect = orm.getDialect();
+			const adapter = orm.getAdapter();
+
+			const compiled = dialect.compileUpdateQuery(this.query, data);
+
+			const affected = await adapter.execute(
+				compiled.sql,
+				compiled.bindings,
+			);
+
+			const tables = this.extractTableNames();
+			orm.invalidateResultCache(tables);
+
+			return affected;
+		});
+	}
+
 	private hydrate(row: DatabaseRow): T {
 		const model = new this.modelClass();
 

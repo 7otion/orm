@@ -289,6 +289,60 @@ export class SQLiteDialect implements SqlDialect {
 	}
 
 	/**
+	 * Compile an UPDATE statement from a full query structure.
+	 *
+	 * Example output:
+	 * UPDATE users SET "is_player" = ? WHERE "is_player" = ?
+	 */
+	compileUpdateQuery(
+		query: QueryStructure,
+		data: Record<string, QueryValue>,
+	): CompiledQuery {
+		const columns = Object.keys(data);
+		const setClauses = columns
+			.map(col => `${this.escapeIdentifier(col)} = ?`)
+			.join(', ');
+		const bindings: QueryValue[] = [...Object.values(data)];
+
+		let sql = `UPDATE ${query.table} SET ${setClauses}`;
+
+		// WHERE clauses - same logic as compileSelect
+		if (query.wheres.length > 0) {
+			sql += ' WHERE ';
+			const whereClauses: string[] = [];
+
+			for (const where of query.wheres) {
+				if (where.type === 'raw') {
+					whereClauses.push(`(${where.sql})`);
+					if (where.bindings) {
+						bindings.push(...where.bindings);
+					}
+				} else {
+					const { column, operator, value } = where;
+
+					if (operator === 'IN' || operator === 'NOT IN') {
+						const values = Array.isArray(value) ? value : [value];
+						const placeholders = values.map(() => '?').join(', ');
+						whereClauses.push(
+							`${column} ${operator} (${placeholders})`,
+						);
+						bindings.push(...values);
+					} else if (operator === 'IS' || operator === 'IS NOT') {
+						whereClauses.push(`${column} ${operator} NULL`);
+					} else {
+						whereClauses.push(`${column} ${operator} ?`);
+						bindings.push(value as QueryValue);
+					}
+				}
+			}
+
+			sql += whereClauses.join(' AND ');
+		}
+
+		return { sql, bindings };
+	}
+
+	/**
 	 * Compile a COUNT query
 	 *
 	 * Example output:

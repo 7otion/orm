@@ -106,6 +106,17 @@ export declare class QueryBuilder<T extends Model<T>> {
      * The return value is the number of rows affected by the delete.
      */
     delete(): Promise<number>;
+    /**
+     * Update the records matching the current query with `data`, in a single
+     * SQL statement rather than one write per matched row.
+     *
+     * Mirrors `delete()` above: runs inside the ORM write queue so it's safe
+     * alongside transactions, and invalidates the cache for every table the
+     * query touches.
+     *
+     * The return value is the number of rows affected by the update.
+     */
+    update(data: Record<string, QueryValue>): Promise<number>;
     private hydrate;
     private loadRelationships;
     /**

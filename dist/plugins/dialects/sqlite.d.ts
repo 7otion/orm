@@ -34,6 +34,13 @@ export declare class SQLiteDialect implements SqlDialect {
      */
     compileDeleteQuery(query: QueryStructure): CompiledQuery;
     /**
+     * Compile an UPDATE statement from a full query structure.
+     *
+     * Example output:
+     * UPDATE users SET "is_player" = ? WHERE "is_player" = ?
+     */
+    compileUpdateQuery(query: QueryStructure, data: Record<string, QueryValue>): CompiledQuery;
+    /**
      * Compile a COUNT query
      *
      * Example output:
