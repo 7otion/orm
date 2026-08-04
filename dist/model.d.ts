@@ -52,7 +52,7 @@ export declare abstract class Model<T extends Model<T>> {
      */
     static get relationships(): Record<string, any>;
     static config: ModelConfig;
-    private _attributes;
+    protected _attributes: Record<string, any>;
     private _original;
     private _exists;
     private _proxy?;

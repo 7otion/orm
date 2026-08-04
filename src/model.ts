@@ -77,7 +77,7 @@ export abstract class Model<T extends Model<T>> {
 	};
 
 	// @ts-ignore - Accessed by mixin methods
-	private _attributes: Record<string, any> = {};
+	protected _attributes: Record<string, any> = {};
 	// @ts-ignore - Accessed by mixin methods
 	private _original: Record<string, any> = {};
 	// @ts-ignore - Accessed by mixin methods
