@@ -13,12 +13,8 @@ export class HasMany<T extends Model<T>> extends Relationship<T> {
 		return [this.localKey];
 	}
 
-	/**
-	 * Get all related models for a parent instance
-	 * Queries with: WHERE foreign_key = parent's local key value
-	 */
 	async get(parent: Model<any>): Promise<T[]> {
-		const tableName = (this.related as any).getTableName();
+		const tableName = this.related.getTableName();
 
 		const query = new QueryBuilder(this.related, tableName);
 		const localValue = this.getParentKeyValue(parent);
@@ -47,7 +43,6 @@ export class HasMany<T extends Model<T>> extends Relationship<T> {
 			return;
 		}
 
-		// Deduplicate IDs
 		const uniqueValues = [...new Set(localValues.filter(v => v != null))];
 
 		const tableName = (this.related as any).getTableName();

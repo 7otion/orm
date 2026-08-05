@@ -1,141 +1,52 @@
-/**
- * QueryBuilder
- *
- * Implements the Builder pattern for constructing database queries.
- *
- * Key Design Decisions:
- * - Builds a QueryStructure (data), doesn't generate SQL directly
- * - Fluent API - each method returns 'this' for chaining
- * - Type-safe - returns typed model instances, not raw rows
- * - Supports both lazy loading (for relationships) and eager loading (with())
- *
- * QueryBuilder does NOT:
- * - Generate SQL (that's SqlDialect's job)
- * - Execute queries directly (uses ORM's adapter)
- * - Know about database specifics
- */
+/** Builds a QueryStructure for a SqlDialect to compile. Generates no SQL. */
 import type { OrderDirection, QueryStructure, QueryValue, WhereValue, WhereOperator } from './types';
-import type { Model, ModelConstructor } from './model';
-export declare class QueryBuilder<T extends Model<T>> {
+import type { Model, ModelStatic } from './model';
+import type { AnyRelations, RelationPath } from './relation-paths';
+export declare class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
     private query;
     private modelClass;
     private eagerLoad;
     private relationshipConstraint?;
-    constructor(modelClass: ModelConstructor<T>, tableName: string);
-    /**
-     * Add a WHERE clause to the query
-     * where('age', '>', 18) or where('status', 'active')
-     */
+    constructor(modelClass: ModelStatic<T>, tableName: string);
+    /** Accepts `where(col, value)` or `where(col, operator, value)`. */
     where(column: string, operatorOrValue: WhereOperator | QueryValue, value?: WhereValue): this;
-    /**
-     * whereRaw('age > ? AND status = ?', [18, 'active'])
-     */
     whereRaw(sql: string, bindings?: QueryValue[]): this;
-    /**
-     * Add a WHERE IN clause to the query
-     * whereIn('status', ['active', 'pending'])
-     */
     whereIn(column: keyof T | string, values: QueryValue[]): this;
-    /**
-     * join('INNER', 'posts', 'posts.user_id', '=', 'users.id')
-     */
     join(type: 'INNER' | 'LEFT' | 'RIGHT', table: string, first: string, operator: string, second: string): this;
     innerJoin(table: string, first: string, operator: string, second: string): this;
     leftJoin(table: string, first: string, operator: string, second: string): this;
-    /**
-     * orderBy('created_at', 'desc')
-     */
     orderBy(column: string, direction?: OrderDirection): this;
-    /**
-     * Raw ORDER BY clause for complex sorting
-     *
-     * Example:
-     * - orderByRaw('created_at DESC, name ASC')
-     */
+    /** Emitted verbatim, for sorts the builder cannot express. */
     orderByRaw(sql: string): this;
     limit(limit: number): this;
     offset(offset: number): this;
-    /**
-     * Specify columns to select (default: all columns)
-     * select('id', 'name') or select(['id', 'name'])
-     */
     select(...columns: (keyof T | string)[]): this;
-    /**
-     * Raw SELECT clause for complex expressions or aggregates
-     * selectRaw('COUNT(*) as total, MAX(created_at) as latest')
-     */
+    /** Emitted verbatim, for aggregates and computed columns. */
     selectRaw(sql: string): this;
     /**
-     * Specify relationships to eager load
-     * Supports nested relationships with dot notation
-     *
-     * @example
-     * // Single-level relationships
-     * User.query().with('posts', 'profile').get()
-     *
-     * // Nested relationships
-     * Post.query().with('category.contentType').get()
-     * User.query().with('posts.comments.author').get()
+     * Eager load relations, including nested dotted paths. Names are checked
+     * against the model's `relationships` literal; models without one accept
+     * any string.
      */
-    with(...relations: string[]): this;
-    /**
-     * Extract table names from the query for cache tagging
-     */
+    with(...relations: RelationPath<TRelations>[]): this;
     private extractTableNames;
-    setRelationshipConstraint(constraint: (query: QueryBuilder<T>) => void): this;
+    setRelationshipConstraint(constraint: (query: QueryBuilder<T, TRelations>) => void): this;
     get(): Promise<T[]>;
     first(): Promise<T | null>;
-    /**
-     * Paginate results
-     * Returns paginated data with total count
-     */
     paginate(page?: number, limit?: number): Promise<{
         data: T[];
         total: number;
     }>;
-    /**
-     * Delete the records matching the current query.
-     *
-     * This method builds a DELETE statement by transforming the SQL
-     * produced by the dialect's `compileSelect`. We reuse the same
-     * bindings and preserve WHERE / JOIN / ORDER clauses. The query is
-     * executed inside the ORM write queue so it is safe to run in
-     * transactions and will invalidate any cached results for the tables
-     * involved.
-     *
-     * The return value is the number of rows affected by the delete.
-     */
+    /** Deletes matching rows in one queued statement, returning the count. */
     delete(): Promise<number>;
-    /**
-     * Update the records matching the current query with `data`, in a single
-     * SQL statement rather than one write per matched row.
-     *
-     * Mirrors `delete()` above: runs inside the ORM write queue so it's safe
-     * alongside transactions, and invalidates the cache for every table the
-     * query touches.
-     *
-     * The return value is the number of rows affected by the update.
-     */
+    /** Updates matching rows in one queued statement, returning the count. */
     update(data: Record<string, QueryValue>): Promise<number>;
     private hydrate;
     private loadRelationships;
-    /**
-     * Load nested relationships recursively
-     * Handles relationships like 'category.contentType'
-     */
     private loadNestedRelationship;
-    /**
-     * Extract related models from a loaded relationship
-     */
     private getRelatedModelsFromLoadedRelationship;
-    /**
-     * Recursively load nested relationships on related models
-     */
     private loadNestedRelationshipOnRelatedModels;
-    /**
-     * Get the query structure (for internal use)
-     * Used by relationship classes to inspect the query
-     */
+    /** @internal Lets relationship classes inspect the pending query. */
     getQuery(): QueryStructure;
 }
 //# sourceMappingURL=query-builder.d.ts.map

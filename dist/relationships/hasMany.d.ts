@@ -1,16 +1,8 @@
-/**
- * HasMany Relationship
- *
- * Represents a one-to-many relationship.
- */
+/** One-to-many. */
 import { Relationship } from './relationship';
 import type { Model } from '../model';
-export declare class HasMany<T extends Model<T>> extends Relationship<T> {
+export declare class HasMany<T extends Model<T>, TClass = unknown> extends Relationship<T, TClass> {
     getOwnerFields(): string[];
-    /**
-     * Get all related models for a parent instance
-     * Queries with: WHERE foreign_key = parent's local key value
-     */
     get(parent: Model<any>): Promise<T[]>;
     eagerLoadFor(models: Model<any>[], relationName: string): Promise<void>;
 }

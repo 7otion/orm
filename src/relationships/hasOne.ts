@@ -13,12 +13,8 @@ export class HasOne<T extends Model<T>> extends Relationship<T> {
 		return [this.localKey];
 	}
 
-	/**
-	 * Get the related model for a parent instance
-	 * Queries with: WHERE foreign_key = parent's local key value LIMIT 1
-	 */
 	async get(parent: Model<any>): Promise<T | null> {
-		const tableName = (this.related as any).getTableName();
+		const tableName = this.related.getTableName();
 
 		const query = new QueryBuilder(this.related, tableName);
 		const localValue = this.getParentKeyValue(parent);
@@ -48,18 +44,15 @@ export class HasOne<T extends Model<T>> extends Relationship<T> {
 			return;
 		}
 
-		// Deduplicate IDs
 		const uniqueValues = [...new Set(localValues.filter(v => v != null))];
 
-		const tableName = (this.related as any).getTableName();
+		const tableName = this.related.getTableName();
 		const query = new QueryBuilder(this.related, tableName);
 
 		const relatedModels = await query
 			.where(this.foreignKey, 'IN', uniqueValues)
 			.get();
 
-		// Map related models back to parents
-		// For HasOne, each parent gets at most one related model
 		const relatedMap = new Map();
 		for (const related of relatedModels) {
 			const foreignValue = (related as any)[this.foreignKey];

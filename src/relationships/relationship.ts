@@ -103,34 +103,16 @@ export abstract class Relationship<T extends Model<T>> {
 		return (parent as any)[this.localKey];
 	}
 
-	/**
-	 * Get related model(s) for a parent instance
-	 * This is called by loadRelationship() during lazy loading
-	 *
-	 * @param parent - The parent model instance
-	 * @returns The related model(s)
-	 */
+	/** Lazy path: load for one parent. */
 	abstract get(parent: Model<any>): Promise<T | T[] | null>;
 
-	/**
-	 * Eager load this relationship for multiple parent models
-	 *
-	 * This is called internally when using with():
-	 * User.query().with('posts').get()
-	 *
-	 * Instead of N+1 queries, this loads all related records in one query
-	 *
-	 * @param models - Parent models to load relationships for
-	 * @param relationName - Name of the relationship property
-	 */
+	/** Eager path: load for a batch of parents in one query. */
 	abstract eagerLoadFor(
 		models: Model<any>[],
 		relationName: string,
 	): Promise<void>;
 
-	/**
-	 * Returns the field name(s) on the owner model that this relationship depends on.
-	 */
+	/** Owner columns this relation keys off, used to invalidate its cache. */
 	abstract getOwnerFields(): string[];
 
 	/**
@@ -140,16 +122,10 @@ export abstract class Relationship<T extends Model<T>> {
 		return this.related;
 	}
 
-	/**
-	 * Get the foreign key
-	 */
 	getForeignKey(): string {
 		return this.foreignKey;
 	}
 
-	/**
-	 * Get the local key
-	 */
 	getLocalKey(): string {
 		return this.localKey;
 	}

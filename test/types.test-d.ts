@@ -1,9 +1,9 @@
 /**
  * Type-level tests.
  *
- * Nothing here runs; it is checked by `bun run typecheck:test`, and a
- * regression shows up as a compile error. A library whose selling point is
- * type safety cannot protect its types with runtime tests alone.
+ * Nothing here runs; it is checked by `bun run check`, and a regression shows
+ * up as a compile error. A library whose selling point is type safety cannot
+ * protect its types with runtime tests alone.
  *
  * Assertions are written as call expressions inside functions rather than with
  * `ReturnType<>`, so they resolve the same way real user code does.
@@ -26,15 +26,19 @@ type Equal<X, Y> =
 		? true
 		: false;
 
-type Expect<T extends true> = T;
-type IsAny<T> = 0 extends 1 & T ? true : false;
+/**
+ * Compile-time assertion. Erased entirely — `declare` emits nothing and the
+ * call is never executed. Written as a call rather than an unused `type`
+ * alias so the file passes `noUnusedLocals` like the rest of the codebase.
+ */
+declare function expectType<_T extends true>(): void;
 
 /** Passage's declared relationship registry. */
 type PassageRelations = typeof Passage.relationships;
 
 /* ── The static entry points resolve to the concrete subclass ───────────── */
 
-async function _staticSurfaceIsTyped() {
+export async function _staticSurfaceIsTyped() {
 	const found = await Passage.find('intro');
 	const everything = await Passage.all();
 	const created = await Passage.create({ ref: 'x' });
@@ -42,10 +46,10 @@ async function _staticSurfaceIsTyped() {
 
 	// A polymorphic `this` parameter binds T to the subclass, so these no
 	// longer erase to `any` — with no change at the call site.
-	type _Find = Expect<Equal<typeof found, Passage | null>>;
-	type _All = Expect<Equal<typeof everything, Passage[]>>;
-	type _Create = Expect<Equal<typeof created, Passage>>;
-	type _Get = Expect<Equal<typeof rows, Passage[]>>;
+	expectType<Equal<typeof found, Passage | null>>();
+	expectType<Equal<typeof everything, Passage[]>>();
+	expectType<Equal<typeof created, Passage>>();
+	expectType<Equal<typeof rows, Passage[]>>();
 
 	// Nullability is now surfaced rather than swallowed.
 	// @ts-expect-error - 'found' is possibly 'null'.
@@ -66,13 +70,13 @@ async function _staticSurfaceIsTyped() {
 
 /* ── Statics are inherited correctly by each subclass ───────────────────── */
 
-async function _staticsBindToTheCallingSubclass() {
+export async function _staticsBindToTheCallingSubclass() {
 	// Each call binds T independently; no leakage between models.
 	const passage = await Passage.find('intro');
 	const line = await Line.find('intro/a');
 
-	type _Passage = Expect<Equal<typeof passage, Passage | null>>;
-	type _Line = Expect<Equal<typeof line, Line | null>>;
+	expectType<Equal<typeof passage, Passage | null>>();
+	expectType<Equal<typeof line, Line | null>>();
 
 	// @ts-expect-error - a Line is not a Passage.
 	const wrong: Passage | null = line;
@@ -80,33 +84,31 @@ async function _staticsBindToTheCallingSubclass() {
 
 /* ── The full read surface, straight off the class ──────────────────────── */
 
-async function _readSurfaceIsTyped() {
+export async function _readSurfaceIsTyped() {
 	// Direct statics — no facade.
 	const repo = Passage;
 
 	const found = await repo.find('intro');
-	type _Find = Expect<Equal<typeof found, Passage | null>>;
+	expectType<Equal<typeof found, Passage | null>>();
 
 	const everything = await repo.all();
-	type _All = Expect<Equal<typeof everything, Passage[]>>;
+	expectType<Equal<typeof everything, Passage[]>>();
 
 	const builder = repo.query();
 	// The builder now also carries the model's relation registry, so `with()`
 	// is checked here too.
-	type _Query = Expect<
+	expectType<
 		Equal<typeof builder, QueryBuilder<Passage, PassageRelations>>
-	>;
+	>();
 
 	const rows = await repo.query().where('status', 'draft').get();
-	type _Get = Expect<Equal<typeof rows, Passage[]>>;
+	expectType<Equal<typeof rows, Passage[]>>();
 
 	const single = await repo.query().first();
-	type _First = Expect<Equal<typeof single, Passage | null>>;
+	expectType<Equal<typeof single, Passage | null>>();
 
 	const page = await repo.query().paginate(1, 10);
-	type _Paginate = Expect<
-		Equal<typeof page, { data: Passage[]; total: number }>
-	>;
+	expectType<Equal<typeof page, { data: Passage[]; total: number }>>();
 
 	// The statics carry full type information, so no repository indirection
 	// is needed to recover it.
@@ -117,19 +119,19 @@ async function _readSurfaceIsTyped() {
 
 /* ── Chaining preserves the builder type ────────────────────────────────── */
 
-function _builderChainingIsTyped() {
+export function _builderChainingIsTyped() {
 	const q = Passage.query();
 	type Q = QueryBuilder<Passage, PassageRelations>;
 
-	type _Where = Expect<Equal<ReturnType<typeof q.where>, Q>>;
-	type _OrderBy = Expect<Equal<ReturnType<typeof q.orderBy>, Q>>;
-	type _Limit = Expect<Equal<ReturnType<typeof q.limit>, Q>>;
-	type _With = Expect<Equal<ReturnType<typeof q.with>, Q>>;
+	expectType<Equal<ReturnType<typeof q.where>, Q>>();
+	expectType<Equal<ReturnType<typeof q.orderBy>, Q>>();
+	expectType<Equal<ReturnType<typeof q.limit>, Q>>();
+	expectType<Equal<ReturnType<typeof q.with>, Q>>();
 }
 
 /* ── with() is checked against the model's relationship literal ─────────── */
 
-function _relationPathsAreChecked() {
+export function _relationPathsAreChecked() {
 	const q = Passage.query();
 
 	// Top-level relation names.
@@ -163,7 +165,7 @@ function _relationPathsAreChecked() {
 
 	// The full valid set is derived, not hand-maintained.
 	type PassagePaths = Parameters<typeof q.with>[number];
-	type _Paths = Expect<
+	expectType<
 		Equal<
 			PassagePaths,
 			| 'lines'
@@ -175,10 +177,10 @@ function _relationPathsAreChecked() {
 			| 'choices.routes'
 			| 'choices.routes.conditions'
 		>
-	>;
+	>();
 }
 
-function _untypedModelsStillAcceptAnyString() {
+export function _untypedModelsStillAcceptAnyString() {
 	// Category never declares a `relationships` literal, so its registry is an
 	// index signature. Such models keep the old permissive behaviour rather
 	// than becoming uncallable.
@@ -187,7 +189,7 @@ function _untypedModelsStillAcceptAnyString() {
 
 /* ── CURRENT: operators and columns are still unchecked strings ─────────── */
 
-function _stringlyTypedSurfaces() {
+export function _stringlyTypedSurfaces() {
 	const q = Passage.query();
 
 	// `WhereOperator | QueryValue` collapses to a plain string union, so a
@@ -202,22 +204,22 @@ function _stringlyTypedSurfaces() {
 
 /* ── Instance surface ───────────────────────────────────────────────────── */
 
-async function _instanceSurfaceIsTyped() {
+export async function _instanceSurfaceIsTyped() {
 	const line = (await Line.find('intro/a'))!;
 
 	const saved = await line.save();
-	type _Save = Expect<Equal<typeof saved, Line>>;
+	expectType<Equal<typeof saved, Line>>();
 
 	const deleted = await line.delete();
-	type _Delete = Expect<Equal<typeof deleted, boolean>>;
+	expectType<Equal<typeof deleted, boolean>>();
 
-	type _IsDirty = Expect<Equal<typeof line.isDirty, boolean>>;
-	type _GetDirty = Expect<Equal<ReturnType<typeof line.getDirty>, string[]>>;
-	type _CreatedAt = Expect<Equal<typeof line.createdAt, Date | null>>;
+	expectType<Equal<typeof line.isDirty, boolean>>();
+	expectType<Equal<ReturnType<typeof line.getDirty>, string[]>>();
+	expectType<Equal<typeof line.createdAt, Date | null>>();
 
 	// Declared columns and relations keep the types the model author wrote.
-	type _Column = Expect<Equal<typeof line.text, string | null>>;
-	type _Relation = Expect<Equal<typeof line.routes, Route[]>>;
+	expectType<Equal<typeof line.text, string | null>>();
+	expectType<Equal<typeof line.routes, Route[]>>();
 
 	// @ts-expect-error - 'nope' does not exist on Line.
 	line.nope;
@@ -241,43 +243,33 @@ type EditableLineFields = Partial<
 	>
 >;
 
-type _ExcludesOrmMembers = Expect<
-	'save' extends keyof EditableLineFields ? false : true
->;
-type _ExcludesGetters = Expect<
-	'summary' extends keyof EditableLineFields ? false : true
->;
-type _KeepsPlainColumns = Expect<
-	'text' extends keyof EditableLineFields ? true : false
->;
-type _KeepsNullableColumns = Expect<
+expectType<'save' extends keyof EditableLineFields ? false : true>();
+expectType<'summary' extends keyof EditableLineFields ? false : true>();
+expectType<'text' extends keyof EditableLineFields ? true : false>();
+expectType<
 	Equal<EditableLineFields['character_ref'], string | null | undefined>
->;
+>();
 
 /* ── The relationship registry: names survive, related types do not ─────── */
 
-function _relationshipRegistry() {
+export function _relationshipRegistry() {
 	// Because models declare `static readonly relationships = { ... }` as a
 	// typed object literal, it SHADOWS the base class's
 	// `Record<string, any>` getter — so the relation names are already
 	// recoverable from the type system today.
 	type PassageRelations = keyof typeof Passage.relationships;
-	type _NamesAreKnown = Expect<Equal<PassageRelations, 'lines' | 'choices'>>;
+	expectType<Equal<PassageRelations, 'lines' | 'choices'>>();
 
 	// …and now the related model type survives too. The factories used to
 	// declare `related: any`, which degraded this to `HasMany<Model<unknown>>`
 	// and discarded the one piece of information `with()` needs.
-	// The second parameter carries the related *class*, which is what lets
-	// nested `with()` paths walk from `lines` into Line's own relations.
+	// The second parameter carries the related class, which nested `with()`
+	// paths walk into.
 	type LinesRelation = (typeof Passage.relationships)['lines'];
-	type _RelatedTypeSurvives = Expect<
-		Equal<LinesRelation, HasMany<Line, typeof Line>>
-	>;
+	expectType<Equal<LinesRelation, HasMany<Line, typeof Line>>>();
 
 	// Which means the loaded shape is recoverable from the registry alone.
-	type _RelatedModel = Expect<
-		Equal<ReturnType<LinesRelation['get']>, Promise<Line[]>>
-	>;
+	expectType<Equal<ReturnType<LinesRelation['get']>, Promise<Line[]>>>();
 }
 
 export type {};

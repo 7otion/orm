@@ -1,8 +1,6 @@
 /**
- * LocalStorage-based Result Cache
- *
- * Persistent cache using browser LocalStorage.
- * Survives page refreshes but has storage limits (~5-10MB).
+ * Result cache backed by LocalStorage. Survives page reloads, but is bound by
+ * the ~5-10MB origin quota, so it evicts and prunes aggressively.
  */
 import type { ResultCacheAdapter } from '../../result-cache';
 export declare class LocalStorageResultCache implements ResultCacheAdapter {

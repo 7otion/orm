@@ -1,23 +1,17 @@
-/**
- * Relationship Loader Mixin
- *
- * Provides relationship loading and management for Model instances.
- */
-export declare class RelationshipLoaderMixin {
+/** Loads and invalidates relations on Model instances. */
+import { ModelState } from './model-state.mixin';
+export declare class RelationshipLoaderMixin extends ModelState {
     /**
-     * Helper for React Suspense-compatible relationship getters.
+     * In-flight load promises, so concurrent `load()` calls for one relation
+     * share a single query.
      */
+    private pending;
+    /** Throws a promise on a miss, as Suspense requires. */
     protected getWithSuspense<R>(relationshipName: string): R;
-    /**
-     * Explicitly load a relationship asynchronously (non-Suspense)
-     * Use this outside of React components or when not using Suspense
-     */
+    /** Await a relation without Suspense. */
     load(relationshipName: string): Promise<void>;
     private loadRelationship;
-    /**
-     * Selectively clear only the relationships whose owner-side key(s) appear in
-     * the provided list of dirty field names.
-     */
-    protected clearAffectedRelationships(dirtyFields: string[]): string[];
+    /** Clears only relations whose owner keys are among the dirty fields. */
+    clearAffectedRelationships(dirtyFields: string[]): string[];
 }
 //# sourceMappingURL=relationship-loader.mixin.d.ts.map

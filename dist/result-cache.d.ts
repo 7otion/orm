@@ -8,7 +8,6 @@ export interface ResultCacheAdapter {
     /**
      * Get a cached result set by key
      * @param key Unique cache key (normalized SQL + params + connection)
-     * @returns Cached result set or undefined
      */
     get<T = any>(key: string): T[] | undefined;
     /**

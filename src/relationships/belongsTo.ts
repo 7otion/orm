@@ -17,8 +17,7 @@ export class BelongsTo<T extends Model<T>> extends Relationship<T> {
 	) {
 		super(parent, related, foreignKey, localKey);
 
-		// For BelongsTo, the foreign key is on the parent model
-		// Override the default inference
+		// The key is on the owner here, so inference differs from the base.
 		if (!foreignKey) {
 			const relatedName = this.related.name
 				.replace(/Model$/, '')
@@ -30,7 +29,6 @@ export class BelongsTo<T extends Model<T>> extends Relationship<T> {
 
 		if (!localKey) {
 			const pk = this.related.config?.primaryKey || 'id';
-			// Relationships don't support composite primary keys - use first key
 			this.localKey = Array.isArray(pk) ? pk[0]! : pk;
 		}
 	}
@@ -39,12 +37,8 @@ export class BelongsTo<T extends Model<T>> extends Relationship<T> {
 		return [this.foreignKey];
 	}
 
-	/**
-	 * Get the related model for a parent instance
-	 * Queries with: WHERE local_key = parent's foreign key value LIMIT 1
-	 */
 	async get(parent: Model<any>): Promise<T | null> {
-		const tableName = (this.related as any).getTableName();
+		const tableName = this.related.getTableName();
 
 		const query = new QueryBuilder(this.related, tableName);
 		const foreignValue = (parent as any)[this.foreignKey];
@@ -69,18 +63,15 @@ export class BelongsTo<T extends Model<T>> extends Relationship<T> {
 			return;
 		}
 
-		// Deduplicate IDs
 		const uniqueValues = [...new Set(foreignValues.filter(v => v != null))];
 
-		const tableName = (this.related as any).getTableName();
+		const tableName = this.related.getTableName();
 		const query = new QueryBuilder(this.related, tableName);
 
 		const relatedModels = await query
 			.where(this.localKey, 'IN', uniqueValues)
 			.get();
 
-		// Map related models back to parents
-		// For BelongsTo, each parent gets at most one related model
 		const relatedMap = new Map();
 		for (const related of relatedModels) {
 			const localValue = (related as any)[this.localKey];

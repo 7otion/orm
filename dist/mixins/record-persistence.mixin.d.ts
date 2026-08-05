@@ -1,9 +1,6 @@
-/**
- * Record Persistence Mixin
- *
- * Provides database write operations (save, delete) for Model instances.
- */
-export declare class RecordPersistenceMixin {
+/** save() / delete() for Model instances. */
+import { ModelState } from './model-state.mixin';
+export declare class RecordPersistenceMixin extends ModelState {
     save(): Promise<this>;
     protected generateSlugIfNeeded(): void;
     protected insert(): Promise<this>;

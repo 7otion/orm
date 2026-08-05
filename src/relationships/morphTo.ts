@@ -70,7 +70,6 @@ export class MorphTo<T extends Model<T>> {
 			grouped.get(discriminatorValue)!.push(model);
 		}
 
-		// For each discriminator type, load all related records
 		for (const [discriminatorValue, groupedModels] of grouped.entries()) {
 			const RelatedModel = this.config.morphMap[discriminatorValue];
 
@@ -97,19 +96,15 @@ export class MorphTo<T extends Model<T>> {
 				continue;
 			}
 
-			// Deduplicate IDs
 			const uniqueForeignKeys = [...new Set(foreignKeys)];
 
-			// Query all related models at once
 			let pk = RelatedModel.config.primaryKey || 'id';
-			// Relationships don't support composite primary keys - use first key
 			pk = Array.isArray(pk) ? pk[0]! : pk;
 
 			const relatedModels = await RelatedModel.query()
 				.where(pk, 'IN', uniqueForeignKeys)
 				.get();
 
-			// Create lookup map by primary key
 			const relatedMap = new Map<any, any>();
 			for (const related of relatedModels) {
 				const id = (related as any)[pk];

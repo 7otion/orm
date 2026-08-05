@@ -1,28 +1,10 @@
-/**
- * Represents a raw database row - just key-value pairs
- * Used as the output from database adapters
- */
+/** A row exactly as an adapter returned it. */
 export type DatabaseRow = Record<string, any>;
-/**
- * Query parameter value types - what can be bound to SQL params
- */
 export type QueryValue = string | number | boolean | null | undefined;
-/**
- * WHERE clause operators supported by the query builder
- */
 export type WhereOperator = '=' | '!=' | '>' | '>=' | '<' | '<=' | 'LIKE' | 'IN' | 'NOT IN' | 'IS' | 'IS NOT';
-/**
- * ORDER BY direction
- */
 export type OrderDirection = 'asc' | 'desc' | 'ASC' | 'DESC' | 'raw';
-/**
- * Value that can be passed to WHERE clause (includes arrays for IN clauses)
- */
+/** Arrays are for IN / NOT IN. */
 export type WhereValue = QueryValue | QueryValue[];
-/**
- * Structure representing a WHERE condition in the query
- * Can be a standard condition or raw SQL
- */
 export interface WhereCondition {
     type: 'basic' | 'raw';
     column?: string;
@@ -31,17 +13,11 @@ export interface WhereCondition {
     sql?: string;
     bindings?: QueryValue[];
 }
-/**
- * Structure representing an ORDER BY clause
- */
 export interface OrderByClause {
     column: string;
     direction: OrderDirection;
 }
-/**
- * The complete query structure built by QueryBuilder
- * This is what gets passed to SqlDialect for compilation
- */
+/** What QueryBuilder produces and SqlDialect compiles. */
 export interface QueryStructure {
     table: string;
     columns?: string[];
@@ -52,9 +28,6 @@ export interface QueryStructure {
     offsetValue?: number;
     joins?: JoinClause[];
 }
-/**
- * JOIN clause structure (used for eager loading relationships)
- */
 export interface JoinClause {
     type: 'INNER' | 'LEFT' | 'RIGHT';
     table: string;
@@ -62,26 +35,19 @@ export interface JoinClause {
     operator: string;
     second: string;
 }
-/**
- * Compiled SQL result from SqlDialect
- * Separates SQL string from bound parameters for security
- */
+/** SQL and its bindings kept separate, so values are always parameterised. */
 export interface CompiledQuery {
     sql: string;
     bindings: QueryValue[];
 }
-/**
- * Configuration for timestamp fields
- */
 export interface TimestampConfig {
     created_at: string;
     updated_at: string;
 }
-/**
- * Model configuration - defined statically in each Model class
- */
 export interface ModelConfig {
+    /** Defaults to the pluralised, snake_cased class name. */
     table?: string;
+    /** Defaults to 'id'. An array declares a composite key. */
     primaryKey?: string | string[];
     timestamps?: boolean | TimestampConfig;
 }

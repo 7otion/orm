@@ -3,8 +3,8 @@
  *
  * This is the regression suite for the bug where every INSERT overwrote a
  * caller-supplied primary key with the adapter's lastInsertRowid — silently
- * destroying UUID and slug-style (`ref`) keys — i.e. every model that does not
- * use an AUTOINCREMENT integer key.
+ * destroying UUID and slug-style keys: every model without an
+ * AUTOINCREMENT integer key.
  *
  * The rule under test: adopt the database-generated key ONLY when the caller
  * supplied no value for a single-column primary key. Never for composite keys.

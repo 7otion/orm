@@ -45,27 +45,13 @@ export abstract class Model<T extends Model<T>> {
 		Record<string, any>
 	>();
 
-	/**
-	 * Define relationships for this model
-	 * Subclasses should override this method to define their relationships
-	 *
-	 * Example:
-	 * protected static defineRelationships() {
-	 *   return {
-	 *     posts: this.hasMany(Post),
-	 *     profile: this.hasOne(Profile)
-	 *   };
-	 * }
-	 */
+	/** Override in a subclass, or declare a `relationships` literal instead. */
 	protected static defineRelationships(): Record<string, any> {
 		return {};
 	}
 
-	/**
-	 * Get relationships for this model (with caching)
-	 */
 	static get relationships(): Record<string, any> {
-		// Use WeakMap to cache per-class to avoid static property inheritance issues
+		// Per class, so a subclass never inherits its parent's map.
 		if (!Model._relationshipsCache.has(this)) {
 			Model._relationshipsCache.set(this, this.defineRelationships());
 		}
@@ -103,7 +89,6 @@ export abstract class Model<T extends Model<T>> {
 					return Object.getPrototypeOf(target).constructor;
 				}
 
-				// Check prototype chain for methods and getters (including mixed-in methods)
 				let proto = Object.getPrototypeOf(target);
 				while (proto) {
 					const descriptor = Object.getOwnPropertyDescriptor(
@@ -112,40 +97,32 @@ export abstract class Model<T extends Model<T>> {
 					);
 
 					if (descriptor) {
-						// Execute getters with proxy as context so they access properties through proxy
+						// Bound to the proxy, so `this` reads columns.
 						if (descriptor.get) {
 							return descriptor.get.call(proxy);
 						}
 
-						// Bind methods to proxy so they access properties through proxy
 						if (typeof descriptor.value === 'function') {
 							return descriptor.value.bind(proxy);
 						}
 					}
 
-					// Move up the prototype chain
 					proto = Object.getPrototypeOf(proto);
 				}
 
-				// Check _attributes first for data properties (id, name, etc.)
-				// This prevents TypeScript's `id!: number;` declarations from shadowing actual data
+				// Before instance properties, so `id!: number` cannot shadow it.
 				if (prop in target._attributes) {
 					return target._attributes[prop];
 				}
 
-				// Check instance properties (used for eager-loaded relationships via _posts, _profile)
-				// Skip TypeScript placeholder properties (undefined values from declarations like `id!: number;`)
 				if (Object.prototype.hasOwnProperty.call(target, prop)) {
 					const instanceValue = target[prop];
-					// Only return instance property if it's not undefined
-					// (undefined likely means it's a TypeScript placeholder)
+					// undefined means an unassigned `field!: T`.
 					if (instanceValue !== undefined) {
 						return instanceValue;
 					}
 				}
 
-				// Auto-generate relationship getters if not explicitly defined
-				// This allows accessing relationships without manually writing getters
 				const ctor = Object.getPrototypeOf(target)
 					.constructor as typeof Model;
 				const relationships = ctor.relationships;
@@ -153,12 +130,10 @@ export abstract class Model<T extends Model<T>> {
 					return target.getWithSuspense(prop as string);
 				}
 
-				// Default: undefined for non-existent properties
 				return undefined;
 			},
 
 			set(target: any, prop: string | symbol, value: any) {
-				// If it's a symbol or internal property, use default behavior
 				if (typeof prop === 'symbol' || prop.startsWith('_')) {
 					target[prop] = value;
 					return true;
@@ -192,23 +167,16 @@ export abstract class Model<T extends Model<T>> {
 					return true;
 				}
 
-				// Store in _attributes for data properties
 				target._attributes[prop as string] = value;
 				return true;
 			},
 
-			/**
-			 * Controls which properties are visible during enumeration (Object.keys, for...in, spread)
-			 */
+			/** Only columns enumerate, so spread and JSON skip relations. */
 			ownKeys(target: any) {
 				const attributeKeys = Object.keys(target._attributes);
 				return attributeKeys;
 			},
 
-			/**
-			 * Controls property descriptors for enumeration
-			 * Makes only _attributes properties enumerable, relationships are invisible
-			 */
 			getOwnPropertyDescriptor(target: any, prop: string | symbol) {
 				if (typeof prop === 'string' && prop in target._attributes) {
 					return {
@@ -223,7 +191,6 @@ export abstract class Model<T extends Model<T>> {
 			},
 		});
 
-		// Store proxy reference so mixin methods can access it
 		this._proxy = proxy;
 
 		return proxy;
@@ -298,7 +265,6 @@ export abstract class Model<T extends Model<T>> {
 			return ModelClass.config.table;
 		}
 
-		// Cache the derived table name on the class constructor itself
 		if (!ModelClass._cachedTableName) {
 			const className = (this as any).name || 'Model';
 			const snakeCase = className

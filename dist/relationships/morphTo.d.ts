@@ -1,9 +1,4 @@
-/**
- * Polymorphic Relationship - MorphTo
- *
- * Allows a model to belong to different model types based on a discriminator field.
- * Example: FileModel → VideoModel | ImageModel | DocumentModel based on file_type
- */
+/** Polymorphic: the target model is chosen by a discriminator column. */
 import type { Model } from '../model';
 import type { ModelConstructor } from '../model';
 export interface MorphToConfig<T extends Model<T>> {

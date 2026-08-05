@@ -1,121 +1,26 @@
 /**
- * SqlDialect Interface
- *
- * This is the abstraction layer that handles database-specific SQL syntax.
- * Different databases have different SQL flavors (SQLite vs PostgreSQL vs MySQL).
- *
- * The dialect is responsible for:
- * - Compiling QueryStructure objects into SQL strings
- * - Handling database-specific syntax differences
- * - Managing parameter placeholders (?, $1, :param, etc.)
- *
- * The dialect does NOT:
- * - Execute queries (that's the adapter's job)
- * - Know about models
- * - Manage connections
- *
- * Example differences between databases:
- * - SQLite uses ? for params, PostgreSQL uses $1, $2
- * - LIMIT syntax varies: MySQL uses LIMIT, OFFSET vs PostgreSQL uses LIMIT, OFFSET
- * - Date functions differ: SQLite uses datetime('now') vs PostgreSQL uses NOW()
+ * Compiles QueryStructure objects into database-specific SQL. Dialects never
+ * execute SQL and know nothing about models or connections.
  */
 import type { CompiledQuery, QueryStructure, QueryValue } from './types';
 export interface SqlDialect {
-    /**
-     * Compile a SELECT query structure into SQL
-     *
-     * @param query - The query structure built by QueryBuilder
-     * @returns Compiled SQL with bound parameters
-     */
     compileSelect(query: QueryStructure): CompiledQuery;
-    /**
-     * Compile an INSERT statement
-     *
-     * @param table - Table name
-     * @param data - Column-value pairs to insert
-     * @returns Compiled SQL with bound parameters
-     */
     compileInsert(table: string, data: Record<string, QueryValue>): CompiledQuery;
-    /**
-     * Compile an UPDATE statement
-     *
-     * @param table - Table name
-     * @param data - Column-value pairs to update
-     * @param primaryKey - Primary key column name(s)
-     * @param id - Primary key value(s) for WHERE clause
-     * @returns Compiled SQL with bound parameters
-     */
     compileUpdate(table: string, data: Record<string, QueryValue>, primaryKey: string | string[], id: QueryValue | QueryValue[]): CompiledQuery;
-    /**
-     * Compile a DELETE statement by primary key.
-     *
-     * This is the helper invoked when you call `await someModel.delete();`
-     * inside a model instance. The ORM passes the table name and the
-     * primary-key value(s).
-     *
-     * Example implementation (SQLite-style):
-     * ```ts
-     * return {
-     *   sql: `DELETE FROM ${table} WHERE ${primaryKey} = ?`,
-     *   bindings: [id],
-     * };
-     * ```
-     *
-     * For query-builder operations, see {@link compileDeleteQuery}.
-     *
-     * @param table - Table name
-     * @param primaryKey - Primary key column name(s)
-     * @param id - Primary key value(s) for WHERE clause
-     * @returns Compiled SQL with bound parameters
-     */
+    /** Single-row delete by primary key, used by `model.delete()`. */
     compileDelete(table: string, primaryKey: string | string[], id: QueryValue | QueryValue[]): CompiledQuery;
     /**
-     * Compile a DELETE statement based on an entire query structure.
-     *
-     * This is only required if you're using `QueryBuilder.delete()` in
-     * your application. The method must support whatever features
-     * `compileSelect` does (WHERE, JOIN, ORDER BY, LIMIT, etc.) and return
-     * a `DELETE` SQL string along with the appropriate bindings.
-     *
-     * Typical dialect implementations simply copy the body of
-     * `compileSelect` and replace the leading `SELECT …` with `DELETE`.
-     *
-     * Example:
-     * ```ts
-     * let sql = `DELETE FROM ${query.table}`;
-     * // append joins, wheres, order/limit/offset as in compileSelect
-     * ```
-     *
-     * @param query - The query structure built by QueryBuilder
-     * @returns Compiled SQL with bound parameters
+     * For `QueryBuilder.delete()`. Must support everything compileSelect does.
+     * Only needed if consumers use the builder's `.delete()`.
      */
     compileDeleteQuery(query: QueryStructure): CompiledQuery;
     /**
-     * Compile an UPDATE statement from a full query structure — the bulk
-     * counterpart to {@link compileUpdate}, for `QueryBuilder.update()`.
-     *
-     * Must support whatever `compileSelect` does for WHERE clauses, the same
-     * way `compileDeleteQuery` does. SQLite's `UPDATE` has no `JOIN` support,
-     * so unlike `compileDeleteQuery` this does not need to handle joins.
-     *
-     * @param query - The query structure built by QueryBuilder
-     * @param data - Column-value pairs to update
-     * @returns Compiled SQL with bound parameters
+     * For `QueryBuilder.update()`. Unlike compileDeleteQuery it need not handle
+     * joins, which SQLite's UPDATE does not support.
      */
     compileUpdateQuery(query: QueryStructure, data: Record<string, QueryValue>): CompiledQuery;
-    /**
-     * Compile a COUNT query
-     *
-     * @param query - The query structure built by QueryBuilder
-     * @returns Compiled SQL with bound parameters
-     */
     compileCount(query: QueryStructure): CompiledQuery;
-    /**
-     * Get the current timestamp in database-specific format
-     * Used for timestamp fields (created_at, updated_at)
-     *
-     * @returns Current timestamp value to store
-     */
+    /** Value written to timestamp columns; format is dialect-specific. */
     getCurrentTimestamp(): number | string;
 }
 //# sourceMappingURL=dialect.d.ts.map

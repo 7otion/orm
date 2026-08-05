@@ -1,15 +1,10 @@
 /**
- * Test adapter backed by `bun:sqlite`.
+ * Test adapter over `bun:sqlite`, deliberately matching TauriAdapter's
+ * observable semantics: insert() returns lastInsertRowid, execute() returns
+ * rows affected, and `undefined` bindings become NULL (Tauri serialises bind
+ * values as JSON, so undefined arrives as null).
  *
- * Deliberately mirrors TauriAdapter's observable semantics, so tests exercise
- * the same code paths a real deployment does:
- *  - `insert()` returns lastInsertRowid (Tauri: `result.lastInsertId`)
- *  - `execute()` returns rows affected (Tauri: `result.rowsAffected`)
- *  - `undefined` bindings are coerced to NULL, because Tauri's plugin-sql
- *    serializes bind values as JSON and `undefined` arrives as null.
- *
- * It also records every statement so tests can assert on the SQL actually
- * issued (e.g. "UPDATE only writes dirty columns", "no query was made at all").
+ * Records every statement, so tests can assert on the SQL actually issued.
  */
 
 import { Database } from 'bun:sqlite';
@@ -34,7 +29,6 @@ export class BunSqliteAdapter implements DatabaseAdapter {
 		this.db.exec('PRAGMA foreign_keys = ON;');
 	}
 
-	/** Statements recorded since the last `clearLog()`, newest last. */
 	sqlLog(): string[] {
 		return this.log.map(entry => entry.sql);
 	}

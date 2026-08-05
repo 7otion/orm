@@ -1,8 +1,4 @@
-/**
- * In-memory LRU Result Cache (Default)
- *
- * Environment-agnostic, simple, and aggressively invalidates on writes.
- */
+/** In-memory LRU result cache. Environment-agnostic; invalidates on write. */
 import type { ResultCacheAdapter } from '../../result-cache';
 
 interface CacheEntry<T = any> {
@@ -97,7 +93,6 @@ export class MemoryResultCache implements ResultCacheAdapter {
 			this.tagMap.delete(table);
 			if (this.debug)
 				console.log('[MemoryResultCache] INVALIDATE', table);
-			// Also clear row cache for this table
 			if (this.rowCache.has(table)) {
 				this.rowCache.delete(table);
 				if (this.debug)

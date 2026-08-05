@@ -1,9 +1,6 @@
-/**
- * Change State Mixin
- *
- * Provides dirty tracking and change detection for Model instances.
- */
-export declare class ChangeStateMixin {
+/** Dirty tracking for Model instances. */
+import { ModelState } from './model-state.mixin';
+export declare class ChangeStateMixin extends ModelState {
     get isDirty(): boolean;
     getDirty(): string[];
     getChanges(): Record<string, {

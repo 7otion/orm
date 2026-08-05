@@ -1,19 +1,4 @@
-/**
- * QueryBuilder
- *
- * Implements the Builder pattern for constructing database queries.
- *
- * Key Design Decisions:
- * - Builds a QueryStructure (data), doesn't generate SQL directly
- * - Fluent API - each method returns 'this' for chaining
- * - Type-safe - returns typed model instances, not raw rows
- * - Supports both lazy loading (for relationships) and eager loading (with())
- *
- * QueryBuilder does NOT:
- * - Generate SQL (that's SqlDialect's job)
- * - Execute queries directly (uses ORM's adapter)
- * - Know about database specifics
- */
+/** Builds a QueryStructure for a SqlDialect to compile. Generates no SQL. */
 
 import type {
 	DatabaseRow,
@@ -43,10 +28,7 @@ export class QueryBuilder<T extends Model<T>> {
 		};
 	}
 
-	/**
-	 * Add a WHERE clause to the query
-	 * where('age', '>', 18) or where('status', 'active')
-	 */
+	/** Accepts `where(col, value)` or `where(col, operator, value)`. */
 	where(
 		column: string,
 		operatorOrValue: WhereOperator | QueryValue,
@@ -55,7 +37,6 @@ export class QueryBuilder<T extends Model<T>> {
 		let operator: WhereOperator;
 		let actualValue: WhereValue;
 
-		// Handle both signatures: where(col, op, val) and where(col, val)
 		if (value === undefined) {
 			operator = '=';
 			actualValue = operatorOrValue as WhereValue;
@@ -75,9 +56,6 @@ export class QueryBuilder<T extends Model<T>> {
 		return this;
 	}
 
-	/**
-	 * whereRaw('age > ? AND status = ?', [18, 'active'])
-	 */
 	whereRaw(sql: string, bindings: QueryValue[] = []): this {
 		const condition: WhereCondition = {
 			type: 'raw',
@@ -89,10 +67,6 @@ export class QueryBuilder<T extends Model<T>> {
 		return this;
 	}
 
-	/**
-	 * Add a WHERE IN clause to the query
-	 * whereIn('status', ['active', 'pending'])
-	 */
 	whereIn(column: keyof T | string, values: QueryValue[]): this {
 		this.query.wheres.push({
 			type: 'basic',
@@ -103,9 +77,6 @@ export class QueryBuilder<T extends Model<T>> {
 		return this;
 	}
 
-	/**
-	 * join('INNER', 'posts', 'posts.user_id', '=', 'users.id')
-	 */
 	join(
 		type: 'INNER' | 'LEFT' | 'RIGHT',
 		table: string,
@@ -146,20 +117,12 @@ export class QueryBuilder<T extends Model<T>> {
 		return this.join('LEFT', table, first, operator, second);
 	}
 
-	/**
-	 * orderBy('created_at', 'desc')
-	 */
 	orderBy(column: string, direction: OrderDirection = 'asc'): this {
 		this.query.orders.push({ column, direction });
 		return this;
 	}
 
-	/**
-	 * Raw ORDER BY clause for complex sorting
-	 *
-	 * Example:
-	 * - orderByRaw('created_at DESC, name ASC')
-	 */
+	/** Emitted verbatim, for sorts the builder cannot express. */
 	orderByRaw(sql: string): this {
 		this.query.orders.push({
 			column: sql,
@@ -178,19 +141,12 @@ export class QueryBuilder<T extends Model<T>> {
 		return this;
 	}
 
-	/**
-	 * Specify columns to select (default: all columns)
-	 * select('id', 'name') or select(['id', 'name'])
-	 */
 	select(...columns: (keyof T | string)[]): this {
 		this.query.columns = columns.map(String);
 		return this;
 	}
 
-	/**
-	 * Raw SELECT clause for complex expressions or aggregates
-	 * selectRaw('COUNT(*) as total, MAX(created_at) as latest')
-	 */
+	/** Emitted verbatim, for aggregates and computed columns. */
 	selectRaw(sql: string): this {
 		this.query.selectRaw = sql;
 		return this;
@@ -215,9 +171,6 @@ export class QueryBuilder<T extends Model<T>> {
 		return this;
 	}
 
-	/**
-	 * Extract table names from the query for cache tagging
-	 */
 	private extractTableNames(): string[] {
 		const tables = new Set<string>();
 
@@ -239,7 +192,6 @@ export class QueryBuilder<T extends Model<T>> {
 	}
 
 	async get(): Promise<T[]> {
-		// Apply relationship constraint if this is a relationship query
 		if (this.relationshipConstraint) {
 			this.relationshipConstraint(this);
 		}
@@ -258,7 +210,6 @@ export class QueryBuilder<T extends Model<T>> {
 
 		const models = rows.map((row: DatabaseRow) => this.hydrate(row));
 
-		// Eager load relationships if requested
 		if (this.eagerLoad.size > 0) {
 			await this.loadRelationships(models);
 		}
@@ -273,15 +224,10 @@ export class QueryBuilder<T extends Model<T>> {
 		return results.length > 0 ? results[0]! : null;
 	}
 
-	/**
-	 * Paginate results
-	 * Returns paginated data with total count
-	 */
 	async paginate(
 		page: number = 1,
 		limit: number = 20,
 	): Promise<{ data: T[]; total: number }> {
-		// Apply relationship constraint if this is a relationship query
 		if (this.relationshipConstraint) {
 			this.relationshipConstraint(this);
 		}
@@ -319,21 +265,8 @@ export class QueryBuilder<T extends Model<T>> {
 		return { data: models, total };
 	}
 
-	/**
-	 * Delete the records matching the current query.
-	 *
-	 * This method builds a DELETE statement by transforming the SQL
-	 * produced by the dialect's `compileSelect`. We reuse the same
-	 * bindings and preserve WHERE / JOIN / ORDER clauses. The query is
-	 * executed inside the ORM write queue so it is safe to run in
-	 * transactions and will invalidate any cached results for the tables
-	 * involved.
-	 *
-	 * The return value is the number of rows affected by the delete.
-	 */
+	/** Deletes matching rows in one queued statement, returning the count. */
 	async delete(): Promise<number> {
-		// apply relationship constraint if this query came from a
-		// relationship helper
 		if (this.relationshipConstraint) {
 			this.relationshipConstraint(this);
 		}
@@ -343,9 +276,6 @@ export class QueryBuilder<T extends Model<T>> {
 			const dialect = orm.getDialect();
 			const adapter = orm.getAdapter();
 
-			// Use dialect helper for query-based deletes. this keeps SQL
-			// generation inside each dialect and avoids fragile string
-			// manipulation.
 			const compiled = dialect.compileDeleteQuery(this.query);
 
 			const affected = await adapter.execute(
@@ -353,7 +283,6 @@ export class QueryBuilder<T extends Model<T>> {
 				compiled.bindings,
 			);
 
-			// invalidate cache for any tables touched by the query
 			const tables = this.extractTableNames();
 			orm.invalidateResultCache(tables);
 
@@ -361,16 +290,7 @@ export class QueryBuilder<T extends Model<T>> {
 		});
 	}
 
-	/**
-	 * Update the records matching the current query with `data`, in a single
-	 * SQL statement rather than one write per matched row.
-	 *
-	 * Mirrors `delete()` above: runs inside the ORM write queue so it's safe
-	 * alongside transactions, and invalidates the cache for every table the
-	 * query touches.
-	 *
-	 * The return value is the number of rows affected by the update.
-	 */
+	/** Updates matching rows in one queued statement, returning the count. */
 	async update(data: Record<string, QueryValue>): Promise<number> {
 		if (this.relationshipConstraint) {
 			this.relationshipConstraint(this);
@@ -420,7 +340,6 @@ export class QueryBuilder<T extends Model<T>> {
 		}
 
 		for (const relationName of this.eagerLoad.keys()) {
-			// Check if this is a nested relationship (contains dots)
 			if (relationName.includes('.')) {
 				await this.loadNestedRelationship(
 					models,
@@ -432,7 +351,7 @@ export class QueryBuilder<T extends Model<T>> {
 				const relationship = relationships[relationName];
 
 				if (!relationship) {
-					// Skip unknown relationships - they might be handled by afterEagerLoad
+					// May still be handled by afterEagerLoad.
 					continue;
 				}
 
@@ -442,7 +361,6 @@ export class QueryBuilder<T extends Model<T>> {
 			}
 		}
 
-		// Call hook for custom post-load logic
 		if (typeof modelConstructor.afterEagerLoad === 'function') {
 			await modelConstructor.afterEagerLoad(
 				this.eagerLoad.keys(),
@@ -460,10 +378,6 @@ export class QueryBuilder<T extends Model<T>> {
 		}
 	}
 
-	/**
-	 * Load nested relationships recursively
-	 * Handles relationships like 'category.contentType'
-	 */
 	private async loadNestedRelationship(
 		models: T[],
 		nestedRelation: string,
@@ -486,21 +400,17 @@ export class QueryBuilder<T extends Model<T>> {
 			await relationship.eagerLoadFor(models, firstLevelRelation);
 		}
 
-		// If there are more nested levels, load them recursively
 		if (remainingRelations) {
-			// Get the related models from the loaded relationship
 			const relatedModels = this.getRelatedModelsFromLoadedRelationship(
 				models,
 				firstLevelRelation,
 			);
 
-			// Filter out null/undefined related models
 			const validRelatedModels = relatedModels.filter(
 				model => model != null,
 			);
 
 			if (validRelatedModels.length > 0) {
-				// Recursively load the remaining nested relationships
 				await this.loadNestedRelationshipOnRelatedModels(
 					validRelatedModels,
 					remainingRelations,
@@ -510,9 +420,6 @@ export class QueryBuilder<T extends Model<T>> {
 		}
 	}
 
-	/**
-	 * Extract related models from a loaded relationship
-	 */
 	private getRelatedModelsFromLoadedRelationship(
 		parentModels: T[],
 		relationName: string,
@@ -535,22 +442,17 @@ export class QueryBuilder<T extends Model<T>> {
 		return relatedModels;
 	}
 
-	/**
-	 * Recursively load nested relationships on related models
-	 */
 	private async loadNestedRelationshipOnRelatedModels(
 		relatedModels: any[],
 		remainingRelation: string,
 		relatedModelConstructor: any,
 	): Promise<void> {
-		// Get relationships from the related model class
 		const relationships = relatedModelConstructor.relationships;
 
 		if (!relationships || Object.keys(relationships).length === 0) {
 			return;
 		}
 
-		// Check if this is still nested
 		if (remainingRelation.includes('.')) {
 			await this.loadNestedRelationship(
 				relatedModels,
@@ -576,10 +478,7 @@ export class QueryBuilder<T extends Model<T>> {
 		}
 	}
 
-	/**
-	 * Get the query structure (for internal use)
-	 * Used by relationship classes to inspect the query
-	 */
+	/** @internal Lets relationship classes inspect the pending query. */
 	getQuery(): QueryStructure {
 		return this.query;
 	}

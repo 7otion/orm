@@ -1,8 +1,6 @@
 /**
- * LocalStorage-based Result Cache
- *
- * Persistent cache using browser LocalStorage.
- * Survives page refreshes but has storage limits (~5-10MB).
+ * Result cache backed by LocalStorage. Survives page reloads, but is bound by
+ * the ~5-10MB origin quota, so it evicts and prunes aggressively.
  */
 import type { ResultCacheAdapter } from '../../result-cache';
 
@@ -25,7 +23,6 @@ export class LocalStorageResultCache implements ResultCacheAdapter {
 	private debug: boolean;
 	private maxEntries: number;
 
-	// LocalStorage keys
 	private get QUERY_CACHE_KEY() {
 		return `${this.prefix}:queries`;
 	}
@@ -47,7 +44,6 @@ export class LocalStorageResultCache implements ResultCacheAdapter {
 		this.defaultTTL = defaultTTL;
 		this.debug = debug;
 
-		// Clean up expired entries on initialization
 		this.cleanup();
 	}
 
@@ -90,7 +86,6 @@ export class LocalStorageResultCache implements ResultCacheAdapter {
 			const queries = this.getQueriesMap();
 			const tagMap = this.getTagMap();
 
-			// Evict oldest if at capacity
 			if (queries.size >= this.maxEntries && !queries.has(key)) {
 				this.evictOldest();
 			}
@@ -109,7 +104,6 @@ export class LocalStorageResultCache implements ResultCacheAdapter {
 
 			queries.set(key, entry);
 
-			// Update tag map
 			for (const tag of tags) {
 				if (!tagMap.has(tag)) tagMap.set(tag, new Set());
 				tagMap.get(tag)!.add(key);
@@ -134,7 +128,6 @@ export class LocalStorageResultCache implements ResultCacheAdapter {
 				error.name === 'QuotaExceededError'
 			) {
 				this.evictOldest();
-				// Retry once
 				try {
 					this.set(key, value, tags, ttl);
 				} catch (retryError) {
@@ -226,7 +219,6 @@ export class LocalStorageResultCache implements ResultCacheAdapter {
 			let invalidated = 0;
 
 			for (const table of tables) {
-				// Invalidate query cache
 				const queryKeys = tagMap.get(table);
 				if (queryKeys) {
 					for (const key of queryKeys) {
@@ -236,7 +228,6 @@ export class LocalStorageResultCache implements ResultCacheAdapter {
 					tagMap.delete(table);
 				}
 
-				// Invalidate row cache for this table
 				const rowKeysToDelete: string[] = [];
 				for (const [key] of rows) {
 					if (key.startsWith(`${table}:`)) {
@@ -443,14 +434,12 @@ export class LocalStorageResultCache implements ResultCacheAdapter {
 			const rows = this.getRowsMap();
 			const now = Date.now();
 
-			// Clean expired queries
 			for (const [key, entry] of queries) {
 				if (entry.expiresAt && now > entry.expiresAt) {
 					this.delete(key, entry.tags);
 				}
 			}
 
-			// Clean expired rows
 			for (const [key, entry] of rows) {
 				if (entry.expiresAt && now > entry.expiresAt) {
 					rows.delete(key);

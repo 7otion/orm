@@ -1,21 +1,17 @@
 /**
  * Model fixtures.
  *
- * A deliberately realistic schema rather than a minimal one: it mixes TEXT
- * primary keys, UUID keys, AUTOINCREMENT integer keys and one composite key,
- * and its relation graph is three levels deep in places. That combination is
- * what exercises the interesting paths — key adoption on insert, nested eager
- * loading, and the partial-load guard.
+ * Realistic rather than minimal: mixes TEXT, UUID,
+ * AUTOINCREMENT and composite keys, with a relation graph three levels deep.
+ * That combination is what exercises key adoption, nested eager loading and
+ * the partial-load guard.
  *
- * These are written the way a consumer writes models — `field!: type`
- * declarations plus a `static readonly relationships = {...}` literal — so a
- * change that breaks this file's *declaration style* is a breaking change for
- * consumers, not just a test failure.
+ * Written the way a consumer writes models, so a change that breaks this
+ * file's declaration style is a breaking change, not just a test failure.
  *
- * Ordering note: a class referenced by a `static readonly relationships`
- * initializer must be declared before it, so the order below is dependency
- * order. The thunk fixtures at the bottom cover the case where that is
- * impossible because two models reference each other.
+ * Declaration order is dependency order: a class named in a `relationships`
+ * initializer must exist already. The thunk fixtures at the bottom cover the
+ * case where that is impossible.
  */
 
 import { Model } from '../../src/model';

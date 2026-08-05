@@ -25,12 +25,10 @@ export class BelongsToMany<T extends Model<T>> extends Relationship<T> {
 		parentKey?: string,
 		relatedKey?: string,
 	) {
-		// Call parent with dummy values - we override the behavior
 		super(parent, related, foreignPivotKey, parentKey);
 
 		this.pivotTable = pivotTable;
 
-		// Auto-infer foreignPivotKey from parent model name
 		if (!foreignPivotKey) {
 			const parentName = this.parentConstructor.name
 				.replace(/Model$/, '')
@@ -42,7 +40,6 @@ export class BelongsToMany<T extends Model<T>> extends Relationship<T> {
 			this.foreignPivotKey = foreignPivotKey;
 		}
 
-		// Auto-infer relatedPivotKey from related model name
 		if (!relatedPivotKey) {
 			const relatedName = related.name
 				.replace(/Model$/, '')
@@ -58,7 +55,6 @@ export class BelongsToMany<T extends Model<T>> extends Relationship<T> {
 			parentKey || this.parentConstructor.config?.primaryKey || 'id';
 		const relatedPk = relatedKey || related.config?.primaryKey || 'id';
 
-		// Relationships don't support composite primary keys - use first key
 		this.parentKey = Array.isArray(parentPk) ? parentPk[0]! : parentPk;
 		this.relatedKey = Array.isArray(relatedPk) ? relatedPk[0]! : relatedPk;
 	}
@@ -67,15 +63,7 @@ export class BelongsToMany<T extends Model<T>> extends Relationship<T> {
 		return [this.parentKey];
 	}
 
-	/**
-	 * Get all related models for a parent instance
-	 * Uses a JOIN to connect through the pivot table
-	 *
-	 * Example SQL:
-	 * SELECT roles.* FROM roles
-	 * INNER JOIN user_roles ON roles.id = user_roles.role_id
-	 * WHERE user_roles.user_id = ?
-	 */
+	/** Joins through the pivot table. */
 	async get(parent: Model<any>): Promise<T[]> {
 		const relatedTable = this.related.getTableName();
 		const parentKeyValue = this.getParentKeyValue(parent);
@@ -88,7 +76,6 @@ export class BelongsToMany<T extends Model<T>> extends Relationship<T> {
 			`${this.pivotTable}.${this.relatedPivotKey}`,
 		);
 
-		// Filter by parent value in the pivot table
 		query.where(
 			`${this.pivotTable}.${this.foreignPivotKey}`,
 			parentKeyValue,
@@ -115,7 +102,6 @@ export class BelongsToMany<T extends Model<T>> extends Relationship<T> {
 			return;
 		}
 
-		// Deduplicate IDs
 		const uniqueParentValues = [
 			...new Set(parentValues.filter(v => v != null)),
 		];
@@ -160,14 +146,12 @@ export class BelongsToMany<T extends Model<T>> extends Relationship<T> {
 			.where(this.relatedKey, 'IN', relatedIds)
 			.get();
 
-		// Create a map of related models by their key
 		const relatedMap = new Map<any, T>();
 		for (const related of relatedModels) {
-			const key = (related as any)[this.relatedKey];
+			const key = getAttribute(related, this.relatedKey);
 			relatedMap.set(key, related);
 		}
 
-		// Group related models by parent using pivot table
 		const parentRelatedMap = new Map<any, T[]>();
 		for (const pivotRow of pivotRows) {
 			const parentValue = pivotRow[this.foreignPivotKey];

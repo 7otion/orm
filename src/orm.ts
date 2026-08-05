@@ -1,16 +1,6 @@
 /**
- * ORM Manager
- *
- * Central singleton that manages:
- * - Database adapter (how we connect to the database)
- * - SQL dialect (how we generate SQL)
- * - Transaction state
- *
- * This is initialized once at app startup:
- * ORM.initialize({
- *   adapter: new MyAdapter(db),
- *   dialect: new SQLiteDialect()
- * });
+ * Singleton holding the adapter, dialect, transaction state and caches.
+ * Initialised once at startup.
  */
 
 import type { DatabaseAdapter } from './adapter';
@@ -21,20 +11,11 @@ import type { DatabaseRow } from './types';
 export interface ORMConfig {
 	adapter: DatabaseAdapter;
 	dialect: SqlDialect;
-	/**
-	 * Enable write queue to prevent concurrent write operations.
-	 * Required for databases that don't support concurrent writes (e.g., SQLite).
-	 * Default: false
-	 */
+	/** Serialises writes. Required for SQLite, which cannot write concurrently. */
 	enableWriteQueue?: boolean;
-	/**
-	 * Optional result cache adapter (for SELECT result caching)
-	 * Users must import and provide a cache implementation if they want caching
-	 */
+	/** Enables SELECT result caching when provided. */
 	resultCacheAdapter?: ResultCacheAdapter;
-	/**
-	 * Disable result caching globally
-	 */
+	/** Disables result caching without discarding the adapter. */
 	disableResultCache?: boolean;
 }
 
@@ -48,7 +29,7 @@ export class ORM {
 	public resultCacheAdapter?: ResultCacheAdapter;
 	private disableResultCache: boolean = false;
 
-	private connectionId: string = 'default'; // For multi-connection support (future)
+	private connectionId: string = 'default';
 
 	private constructor(config: ORMConfig) {
 		this.adapter = config.adapter;
@@ -68,11 +49,10 @@ export class ORM {
 			this.adapter.inTransaction() ||
 			!this.resultCacheAdapter
 		) {
-			// Never cache inside transactions or if no cache adapter provided
 			return this.adapter.query(sql, params);
 		}
 
-		// Hybrid caching: row-level for SELECT * FROM table WHERE id = ?/IN (?), query-level for others
+		// Row-level cache for primary-key lookups, query-level for the rest.
 		const selectStarMatch = sql.match(
 			/^SELECT \* FROM ([^ ]+) WHERE (.+)$/i,
 		);
@@ -86,18 +66,14 @@ export class ORM {
 					'Unable to determine WHERE clause for caching.',
 				);
 
-			// id = ?
 			const eqMatch = where.match(/^id\s*=\s*\?/i);
-			// id IN (?, ?, ...)
 			const inMatch = where.match(/^id\s+IN\s*\((.+)\)/i);
 			if (eqMatch && params.length === 1) {
-				// Try row cache for single id
 				const row = this.resultCacheAdapter!.getRowById?.(
 					table,
 					params[0],
 				);
 				if (row) return [row];
-				// Miss: fetch from DB, cache row
 				const result = await this.adapter.query(sql, params);
 				if (result[0])
 					this.resultCacheAdapter!.setRowById?.(
@@ -107,7 +83,6 @@ export class ORM {
 					);
 				return result;
 			} else if (inMatch) {
-				// Try row cache for each id
 				const idParams = params;
 				const cachedRows: DatabaseRow[] = [];
 				const missingIds: any[] = [];
@@ -121,7 +96,6 @@ export class ORM {
 				}
 				let fetchedRows: DatabaseRow[] = [];
 				if (missingIds.length > 0) {
-					// Build SQL for missing ids
 					const qMarks = missingIds.map(() => '?').join(', ');
 					const fetchSql = `SELECT * FROM ${table} WHERE id IN (${qMarks})`;
 					fetchedRows = await this.adapter.query(
@@ -136,7 +110,6 @@ export class ORM {
 						);
 					}
 				}
-				// Return all rows in requested order
 				const idToRow = new Map<any, DatabaseRow>();
 				for (const r of cachedRows) idToRow.set(r.id, r);
 				for (const r of fetchedRows) idToRow.set(r.id, r);
@@ -145,7 +118,6 @@ export class ORM {
 					.filter(Boolean) as DatabaseRow[];
 			}
 		}
-		// Fallback: query-level cache
 		const key = this.makeCacheKey(sql, params);
 		const cached = this.resultCacheAdapter!.get<DatabaseRow>(key);
 		if (cached) return cached;
@@ -161,15 +133,11 @@ export class ORM {
 	}
 
 	/**
-	 * Generate a robust cache key by normalizing SQL and params.
-	 * - Collapses all whitespace to a single space
-	 * - Lowercases SQL for case-insensitive matching
-	 * - Serializes params with stable JSON
+	 * Normalises whitespace and case so equivalent SQL shares a cache entry,
+	 * and stringifies params with sorted keys so key order cannot split it.
 	 */
 	private makeCacheKey(sql: string, params: any[]): string {
-		// Collapse all whitespace to single space, trim, and lowercase
 		const normalizedSql = sql.replace(/\s+/g, ' ').trim().toLowerCase();
-		// Stable JSON stringify for params (handles object key order)
 		const stableStringify = (value: any): string => {
 			if (Array.isArray(value)) {
 				return '[' + value.map(stableStringify).join(',') + ']';
@@ -234,28 +202,12 @@ export class ORM {
 	}
 
 	/**
-	 * Execute a callback within a database transaction
-	 *
-	 * Supports SQLite, MySQL, and PostgreSQL transaction semantics:
-	 * - Nested transactions are handled automatically (only outermost transaction commits/rolls back)
-	 * - Context-aware: All queries within callback execute in the same transaction
-	 * - If callback succeeds → transaction commits
-	 * - If callback throws → transaction rolls back
-	 *
-	 * Example:
-	 * await ORM.transaction(async () => {
-	 *   const user = await User.create({ name: 'John' });
-	 *   const post = await Post.create({ user_id: user.id, title: 'Hello' });
-	 * });
-	 *
-	 * @param callback - Function to execute in transaction context
-	 * @returns The callback's return value
+	 * Runs the callback in a transaction, committing on success and rolling
+	 * back on throw. Nesting is handled: only the outermost call commits.
 	 */
 	async transaction<T>(callback: () => Promise<T>): Promise<T> {
 		const wasInTransaction = this.adapter.inTransaction();
 
-		// Only begin/commit if not already in a transaction
-		// This handles nested transactions correctly
 		if (!wasInTransaction) {
 			await this.adapter.beginTransaction();
 		}
@@ -277,20 +229,14 @@ export class ORM {
 	}
 
 	/**
-	 * Queue a write operation (INSERT, UPDATE, DELETE) to prevent concurrent writes.
-	 * Only used when enableWriteQueue is true (for databases like SQLite).
-	 * Read operations are not queued.
-	 *
-	 * @param operation - Async write operation to queue
-	 * @returns Result of the write operation
+	 * Serialises a write behind any already in flight, when the write queue is
+	 * enabled. Reads are never queued.
 	 */
 	async queueWrite<T>(operation: () => Promise<T>): Promise<T> {
 		if (!this.enableWriteQueue) {
-			// No queueing - execute immediately
 			return operation();
 		}
 
-		// Wait for previous write to complete, then execute this one
 		const result = this.writeQueue.then(() => operation());
 		this.writeQueue = result.catch(() => {}); // Don't propagate errors in queue chain
 		return result;

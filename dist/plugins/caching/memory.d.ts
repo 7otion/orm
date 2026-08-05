@@ -1,8 +1,4 @@
-/**
- * In-memory LRU Result Cache (Default)
- *
- * Environment-agnostic, simple, and aggressively invalidates on writes.
- */
+/** In-memory LRU result cache. Environment-agnostic; invalidates on write. */
 import type { ResultCacheAdapter } from '../../result-cache';
 export declare class MemoryResultCache implements ResultCacheAdapter {
     private cache;

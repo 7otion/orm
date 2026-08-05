@@ -1,8 +1,6 @@
 /**
- * Per-test database bootstrap.
- *
- * Every test gets a brand new in-memory SQLite database and a fresh ORM
- * singleton, so no test can observe another's rows, caches or write queue.
+ * Every test gets a fresh in-memory database and ORM singleton, so no test can
+ * observe another's rows, caches or write queue.
  */
 
 import { ORM, type ORMConfig } from '../../src/orm';
@@ -16,10 +14,7 @@ export interface TestContext {
 	orm: ORM;
 }
 
-/**
- * Creates a fresh database + ORM. `enableWriteQueue` defaults to true, which
- * is the recommended configuration for SQLite.
- */
+/** `enableWriteQueue` defaults to true, as recommended for SQLite. */
 export async function freshDatabase(
 	options: Partial<ORMConfig> = {},
 ): Promise<TestContext> {

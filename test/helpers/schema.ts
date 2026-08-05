@@ -1,10 +1,7 @@
 /**
- * Schema backing the model fixtures.
- *
- * The mix of key styles is the point: TEXT primary keys (`ref`), UUID keys
- * (`uuid`), AUTOINCREMENT integer keys (`id`) and one composite key
- * (`character_tags`). That combination is what surfaced the bug where INSERT
- * overwrote a caller-supplied primary key with lastInsertRowid.
+ * Schema backing the model fixtures. The mix of key styles is the point — it
+ * is what surfaced the bug where INSERT overwrote a caller-supplied primary
+ * key with lastInsertRowid.
  */
 
 export const SCHEMA = /* sql */ `
