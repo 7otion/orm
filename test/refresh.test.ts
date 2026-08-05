@@ -139,8 +139,8 @@ describe('refresh', () => {
 		await tag!.refresh();
 
 		const select = adapter.log.find(e => e.kind === 'query')!;
-		expect(select.sql).toContain('character_ref = ?');
-		expect(select.sql).toContain('tag = ?');
+		expect(select.sql).toContain('"character_ref" = ?');
+		expect(select.sql).toContain('"tag" = ?');
 	});
 
 	test('a primary key of 0 refreshes rather than being read as missing', async () => {

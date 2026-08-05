@@ -1,8 +1,11 @@
 import type { QueryValue } from './types';
 /**
- * Shared helpers. Separate module so the mixins can use them without importing
- * `model.ts`, which imports the mixins itself.
+ * Identifiers are interpolated into SQL, not bound, so anything that is not a
+ * plain name is rejected rather than escaped — an escaped expression would
+ * only fail later as an unknown column. Expressions belong in the `*Raw`
+ * methods, where the caller is explicitly taking responsibility.
  */
+export declare function assertIdentifier(value: string, kind: string): string;
 /**
  * Own keys only. `relationships[name]` resolves inherited Object.prototype
  * members, which would mistake `toString` for a relation.

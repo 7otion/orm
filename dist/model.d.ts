@@ -81,6 +81,15 @@ export declare abstract class Model<T extends Model<T>> {
     protected static belongsTo<C extends ModelStatic<any>>(related: C | (() => C), foreignKey?: string, localKey?: string): BelongsTo<InstanceType<C>, C>;
     protected static belongsToMany<C extends ModelStatic<any>>(related: C, pivotTable: string, foreignPivotKey?: string, relatedPivotKey?: string, parentKey?: string, relatedKey?: string): BelongsToMany<InstanceType<C>, C>;
     protected static morphTo<R extends Model<R>>(config: MorphToConfig<R>): MorphTo<R>;
+    /**
+     * Bulk-assign columns, honouring `fillable`/`guarded`.
+     *
+     * Unlike `Object.assign`, this never writes an ORM-internal (`_`-prefixed)
+     * key, so an untrusted request body cannot corrupt persistence state. A
+     * model declaring neither `fillable` nor `guarded` still accepts every
+     * column, so set one before filling from user input.
+     */
+    fill(data: Record<string, unknown>): this;
     /** Replays whatever was eager-loaded, or only the paths given. */
     refresh(relationships?: string[]): Promise<void>;
 }

@@ -39,13 +39,17 @@ export class SQLiteDialect implements SqlDialect {
 						const values = Array.isArray(value) ? value : [value];
 						const placeholders = values.map(() => '?').join(', ');
 						whereClauses.push(
-							`${column} ${operator} (${placeholders})`,
+							`${this.escapeIdentifier(column!)} ${operator} (${placeholders})`,
 						);
 						bindings.push(...values);
 					} else if (operator === 'IS' || operator === 'IS NOT') {
-						whereClauses.push(`${column} ${operator} NULL`);
+						whereClauses.push(
+							`${this.escapeIdentifier(column!)} ${operator} NULL`,
+						);
 					} else {
-						whereClauses.push(`${column} ${operator} ?`);
+						whereClauses.push(
+							`${this.escapeIdentifier(column!)} ${operator} ?`,
+						);
 						bindings.push(value as QueryValue);
 					}
 				}
@@ -197,13 +201,17 @@ export class SQLiteDialect implements SqlDialect {
 						const values = Array.isArray(value) ? value : [value];
 						const placeholders = values.map(() => '?').join(', ');
 						whereClauses.push(
-							`${column} ${operator} (${placeholders})`,
+							`${this.escapeIdentifier(column!)} ${operator} (${placeholders})`,
 						);
 						bindings.push(...values);
 					} else if (operator === 'IS' || operator === 'IS NOT') {
-						whereClauses.push(`${column} ${operator} NULL`);
+						whereClauses.push(
+							`${this.escapeIdentifier(column!)} ${operator} NULL`,
+						);
 					} else {
-						whereClauses.push(`${column} ${operator} ?`);
+						whereClauses.push(
+							`${this.escapeIdentifier(column!)} ${operator} ?`,
+						);
 						bindings.push(value as QueryValue);
 					}
 				}
@@ -266,13 +274,17 @@ export class SQLiteDialect implements SqlDialect {
 						const values = Array.isArray(value) ? value : [value];
 						const placeholders = values.map(() => '?').join(', ');
 						whereClauses.push(
-							`${column} ${operator} (${placeholders})`,
+							`${this.escapeIdentifier(column!)} ${operator} (${placeholders})`,
 						);
 						bindings.push(...values);
 					} else if (operator === 'IS' || operator === 'IS NOT') {
-						whereClauses.push(`${column} ${operator} NULL`);
+						whereClauses.push(
+							`${this.escapeIdentifier(column!)} ${operator} NULL`,
+						);
 					} else {
-						whereClauses.push(`${column} ${operator} ?`);
+						whereClauses.push(
+							`${this.escapeIdentifier(column!)} ${operator} ?`,
+						);
 						bindings.push(value as QueryValue);
 					}
 				}
@@ -311,13 +323,17 @@ export class SQLiteDialect implements SqlDialect {
 						const values = Array.isArray(value) ? value : [value];
 						const placeholders = values.map(() => '?').join(', ');
 						whereClauses.push(
-							`${column} ${operator} (${placeholders})`,
+							`${this.escapeIdentifier(column!)} ${operator} (${placeholders})`,
 						);
 						bindings.push(...values);
 					} else if (operator === 'IS' || operator === 'IS NOT') {
-						whereClauses.push(`${column} ${operator} NULL`);
+						whereClauses.push(
+							`${this.escapeIdentifier(column!)} ${operator} NULL`,
+						);
 					} else {
-						whereClauses.push(`${column} ${operator} ?`);
+						whereClauses.push(
+							`${this.escapeIdentifier(column!)} ${operator} ?`,
+						);
 						bindings.push(value as QueryValue);
 					}
 				}

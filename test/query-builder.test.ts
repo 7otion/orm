@@ -56,7 +56,7 @@ describe('where', () => {
 
 		expect(rows.map(r => r.name)).toEqual(['Dee']);
 		const select = adapter.log.find(e => e.kind === 'query')!;
-		expect(select.sql).toContain('status IS NULL');
+		expect(select.sql).toContain('"status" IS NULL');
 		expect(select.params).toEqual([]);
 	});
 

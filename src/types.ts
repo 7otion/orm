@@ -72,4 +72,11 @@ export interface ModelConfig {
 	/** Defaults to 'id'. An array declares a composite key. */
 	primaryKey?: string | string[];
 	timestamps?: boolean | TimestampConfig;
+	/**
+	 * Columns that bulk assignment (`create`, `fill`) may set. When present,
+	 * everything else is ignored — the safe choice for request bodies.
+	 */
+	fillable?: string[];
+	/** Columns bulk assignment may never set. Ignored when `fillable` is set. */
+	guarded?: string[];
 }

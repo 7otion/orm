@@ -379,10 +379,7 @@ export abstract class Model<T extends Model<T>> {
 		data: Record<string, any>,
 	): Promise<T> {
 		const model = new this();
-
-		for (const [key, value] of Object.entries(data)) {
-			(model as Record<string, any>)[key] = value;
-		}
+		model.fill(data);
 
 		await model.save();
 		return model;
@@ -450,6 +447,30 @@ export abstract class Model<T extends Model<T>> {
 		config: MorphToConfig<R>,
 	): MorphTo<R> {
 		return new MorphTo(this, config);
+	}
+
+	/**
+	 * Bulk-assign columns, honouring `fillable`/`guarded`.
+	 *
+	 * Unlike `Object.assign`, this never writes an ORM-internal (`_`-prefixed)
+	 * key, so an untrusted request body cannot corrupt persistence state. A
+	 * model declaring neither `fillable` nor `guarded` still accepts every
+	 * column, so set one before filling from user input.
+	 */
+	fill(data: Record<string, unknown>): this {
+		const { fillable, guarded } = (this.constructor as typeof Model).config;
+
+		for (const [key, value] of Object.entries(data)) {
+			if (key.startsWith('_')) continue;
+			if (fillable) {
+				if (!fillable.includes(key)) continue;
+			} else if (guarded?.includes(key)) {
+				continue;
+			}
+			(this as Record<string, unknown>)[key] = value;
+		}
+
+		return this;
 	}
 
 	/** Replays whatever was eager-loaded, or only the paths given. */

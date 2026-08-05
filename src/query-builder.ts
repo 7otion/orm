@@ -11,7 +11,7 @@ import type {
 } from './types';
 import type { Model, ModelStatic } from './model';
 import { ORM } from './orm';
-import { findRelationship, getRelation } from './internal';
+import { assertIdentifier, findRelationship, getRelation } from './internal';
 import type { AnyRelations, RelationPath } from './relation-paths';
 
 export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
@@ -52,7 +52,7 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 
 		const condition: WhereCondition = {
 			type: 'basic',
-			column: String(column),
+			column: assertIdentifier(String(column), 'column'),
 			operator,
 			value: actualValue,
 		};
@@ -75,7 +75,7 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 	whereIn(column: keyof T | string, values: QueryValue[]): this {
 		this.query.wheres.push({
 			type: 'basic',
-			column: String(column),
+			column: assertIdentifier(String(column), 'column'),
 			operator: 'IN',
 			value: values,
 		});
@@ -95,10 +95,10 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 
 		this.query.joins.push({
 			type,
-			table,
-			first,
+			table: assertIdentifier(table, 'table'),
+			first: assertIdentifier(first, 'join column'),
 			operator,
-			second,
+			second: assertIdentifier(second, 'join column'),
 		});
 
 		return this;
@@ -123,7 +123,10 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 	}
 
 	orderBy(column: string, direction: OrderDirection = 'asc'): this {
-		this.query.orders.push({ column, direction });
+		this.query.orders.push({
+			column: assertIdentifier(column, 'column'),
+			direction,
+		});
 		return this;
 	}
 
@@ -147,7 +150,9 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 	}
 
 	select(...columns: (keyof T | string)[]): this {
-		this.query.columns = columns.map(String);
+		this.query.columns = columns.map(c =>
+			assertIdentifier(String(c), 'column'),
+		);
 		return this;
 	}
 

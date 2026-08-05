@@ -5,6 +5,26 @@ import type { QueryValue } from './types';
  * `model.ts`, which imports the mixins itself.
  */
 
+/** A plain or dotted name, optionally ending in `*`. */
+const IDENTIFIER = /^(?:[A-Za-z_][A-Za-z0-9_$]*|\*)(?:\.(?:[A-Za-z_][A-Za-z0-9_$]*|\*))*$/;
+
+/**
+ * Identifiers are interpolated into SQL, not bound, so anything that is not a
+ * plain name is rejected rather than escaped — an escaped expression would
+ * only fail later as an unknown column. Expressions belong in the `*Raw`
+ * methods, where the caller is explicitly taking responsibility.
+ */
+export function assertIdentifier(value: string, kind: string): string {
+	if (!IDENTIFIER.test(value)) {
+		throw new Error(
+			`[orm] Unsafe ${kind}: ${JSON.stringify(value)}. ` +
+				`Expected a column or table name. ` +
+				`Use whereRaw()/orderByRaw()/selectRaw() for expressions.`,
+		);
+	}
+	return value;
+}
+
 /**
  * Own keys only. `relationships[name]` resolves inherited Object.prototype
  * members, which would mistake `toString` for a relation.

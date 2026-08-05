@@ -1,5 +1,5 @@
 /**
- * Singleton holding the adapter, dialect, transaction state and caches.
+ * Singleton holding the adapter, dialect and transaction state.
  * Initialised once at startup.
  */
 import type { DatabaseAdapter } from './adapter';
