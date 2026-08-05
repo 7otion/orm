@@ -13,10 +13,7 @@ export { ORM, type ORMConfig } from './orm';
 export type { DatabaseAdapter } from './adapter';
 export type { SqlDialect } from './dialect';
 export { QueryBuilder } from './query-builder';
-export { StatementCache } from './statement-cache';
 export type { DatabaseRow, QueryValue, WhereValue, WhereOperator, OrderDirection, WhereCondition, OrderByClause, QueryStructure, JoinClause, CompiledQuery, TimestampConfig, ModelConfig, } from './types';
 export { SQLiteDialect } from './plugins/dialects/sqlite';
 export { TauriAdapter, type TauriAdapterConfig, } from './plugins/adapters/tauri';
-export { MemoryResultCache } from './plugins/caching/memory';
-export { LocalStorageResultCache } from './plugins/caching/localstorage';
 //# sourceMappingURL=index.d.ts.map

@@ -1,13 +1,12 @@
 /**
- * Transactions, the SQLite write queue, and result caching.
+ * Transactions, the SQLite write queue, and ORM lifecycle.
  */
 
 import { describe, expect, test } from 'bun:test';
 
 import { ORM } from '../src/orm';
-import { MemoryResultCache } from '../src/plugins/caching/memory';
 
-import { Passage, User } from './helpers/models';
+import { Passage } from './helpers/models';
 import { freshDatabase } from './helpers/setup';
 
 function newPassage(ref: string): Promise<Passage> {
@@ -132,69 +131,6 @@ describe('write queue', () => {
 
 		await newPassage('a');
 		expect(await Passage.query().get()).toHaveLength(1);
-	});
-});
-
-describe('result cache', () => {
-	test('an identical query is served from cache', async () => {
-		const { adapter } = await freshDatabase({
-			resultCacheAdapter: new MemoryResultCache(),
-		});
-		await User.create({ name: 'Ann', status: 'active' });
-
-		adapter.clearLog();
-		await User.query().where('status', 'active').get();
-		const firstCount = adapter.log.length;
-
-		await User.query().where('status', 'active').get();
-		expect(adapter.log.length).toBe(firstCount);
-	});
-
-	test('a write invalidates the cache for that table', async () => {
-		const { adapter } = await freshDatabase({
-			resultCacheAdapter: new MemoryResultCache(),
-		});
-		await User.create({ name: 'Ann', status: 'active' });
-
-		expect(await User.query().where('status', 'active').get()).toHaveLength(
-			1,
-		);
-
-		await User.create({ name: 'Bob', status: 'active' });
-
-		adapter.clearLog();
-		const rows = await User.query().where('status', 'active').get();
-		expect(rows).toHaveLength(2);
-		expect(adapter.log.length).toBeGreaterThan(0);
-	});
-
-	test('queries inside a transaction are never cached', async () => {
-		const { adapter } = await freshDatabase({
-			resultCacheAdapter: new MemoryResultCache(),
-		});
-		await User.create({ name: 'Ann', status: 'active' });
-
-		await ORM.getInstance().transaction(async () => {
-			adapter.clearLog();
-			await User.query().where('status', 'active').get();
-			await User.query().where('status', 'active').get();
-			// Both reads hit the database.
-			expect(adapter.log.filter(e => e.kind === 'query')).toHaveLength(2);
-		});
-	});
-
-	test('caching can be disabled at runtime', async () => {
-		const { adapter } = await freshDatabase({
-			resultCacheAdapter: new MemoryResultCache(),
-		});
-		await User.create({ name: 'Ann', status: 'active' });
-
-		ORM.getInstance().setResultCacheDisabled(true);
-		adapter.clearLog();
-		await User.query().where('status', 'active').get();
-		await User.query().where('status', 'active').get();
-
-		expect(adapter.log.filter(e => e.kind === 'query')).toHaveLength(2);
 	});
 });
 

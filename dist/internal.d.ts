@@ -1,3 +1,4 @@
+import type { QueryValue } from './types';
 /**
  * Shared helpers. Separate module so the mixins can use them without importing
  * `model.ts`, which imports the mixins itself.
@@ -14,5 +15,5 @@ export declare function setRelation(model: object, name: string, value: unknown)
 export declare function isRelationLoaded(model: object, name: string): boolean;
 /** Returns whether anything was actually cleared. */
 export declare function clearRelation(model: object, name: string): boolean;
-export declare function getAttribute(model: object, column: string): any;
+export declare function getAttribute(model: object, column: string): QueryValue;
 //# sourceMappingURL=internal.d.ts.map

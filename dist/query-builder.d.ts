@@ -29,7 +29,6 @@ export declare class QueryBuilder<T extends Model<T>, TRelations = AnyRelations>
      * any string.
      */
     with(...relations: RelationPath<TRelations>[]): this;
-    private extractTableNames;
     setRelationshipConstraint(constraint: (query: QueryBuilder<T, TRelations>) => void): this;
     get(): Promise<T[]>;
     first(): Promise<T | null>;

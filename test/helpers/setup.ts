@@ -1,6 +1,6 @@
 /**
  * Every test gets a fresh in-memory database and ORM singleton, so no test can
- * observe another's rows, caches or write queue.
+ * observe another's rows or write queue.
  */
 
 import { ORM, type ORMConfig } from '../../src/orm';

@@ -4,17 +4,11 @@
  */
 import type { DatabaseAdapter } from './adapter';
 import type { SqlDialect } from './dialect';
-import type { ResultCacheAdapter } from './result-cache';
-import type { DatabaseRow } from './types';
 export interface ORMConfig {
     adapter: DatabaseAdapter;
     dialect: SqlDialect;
     /** Serialises writes. Required for SQLite, which cannot write concurrently. */
     enableWriteQueue?: boolean;
-    /** Enables SELECT result caching when provided. */
-    resultCacheAdapter?: ResultCacheAdapter;
-    /** Disables result caching without discarding the adapter. */
-    disableResultCache?: boolean;
 }
 export declare class ORM {
     private static instance;
@@ -22,18 +16,7 @@ export declare class ORM {
     private dialect;
     private writeQueue;
     private enableWriteQueue;
-    resultCacheAdapter?: ResultCacheAdapter;
-    private disableResultCache;
-    private connectionId;
     private constructor();
-    cachedSelect(sql: string, params?: any[], tables?: string[]): Promise<DatabaseRow[]>;
-    invalidateResultCache(tables: string[]): void;
-    /**
-     * Normalises whitespace and case so equivalent SQL shares a cache entry,
-     * and stringifies params with sorted keys so key order cannot split it.
-     */
-    private makeCacheKey;
-    setResultCacheDisabled(disabled: boolean): void;
     static initialize(config: ORMConfig): void;
     static reInitialize(config: ORMConfig): Promise<void>;
     static getInstance(): ORM;

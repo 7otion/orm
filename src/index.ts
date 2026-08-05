@@ -14,7 +14,6 @@ export { ORM, type ORMConfig } from './orm';
 export type { DatabaseAdapter } from './adapter';
 export type { SqlDialect } from './dialect';
 export { QueryBuilder } from './query-builder';
-export { StatementCache } from './statement-cache';
 
 export type {
 	DatabaseRow,
@@ -36,5 +35,3 @@ export {
 	TauriAdapter,
 	type TauriAdapterConfig,
 } from './plugins/adapters/tauri';
-export { MemoryResultCache } from './plugins/caching/memory';
-export { LocalStorageResultCache } from './plugins/caching/localstorage';

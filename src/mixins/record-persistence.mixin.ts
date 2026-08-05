@@ -70,7 +70,6 @@ export class RecordPersistenceMixin extends ModelState {
 			this._exists = true;
 			this._original = { ...this._attributes };
 
-			orm.invalidateResultCache([config.table!]);
 
 			return this;
 		});
@@ -149,7 +148,6 @@ export class RecordPersistenceMixin extends ModelState {
 
 			const cleared = this.clearAffectedRelationships(dirtyFields);
 
-			orm.invalidateResultCache([config.table!]);
 
 			return cleared;
 		});
@@ -189,7 +187,6 @@ export class RecordPersistenceMixin extends ModelState {
 
 			this._exists = false;
 
-			orm.invalidateResultCache([config.table!]);
 
 			return true;
 		});

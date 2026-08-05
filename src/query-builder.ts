@@ -169,19 +169,6 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 		return this;
 	}
 
-	private extractTableNames(): string[] {
-		const tables = new Set<string>();
-
-		tables.add(this.query.table);
-		if (this.query.joins) {
-			for (const join of this.query.joins) {
-				tables.add(join.table);
-			}
-		}
-
-		return Array.from(tables);
-	}
-
 	setRelationshipConstraint(
 		constraint: (query: QueryBuilder<T, TRelations>) => void,
 	): this {
@@ -199,12 +186,9 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 
 		const compiled = dialect.compileSelect(this.query);
 
-		const tables = orm.resultCacheAdapter ? this.extractTableNames() : [];
-		const rows = await orm.cachedSelect(
-			compiled.sql,
-			compiled.bindings,
-			tables,
-		);
+		const rows = await orm
+			.getAdapter()
+			.query(compiled.sql, compiled.bindings);
 
 		const models = rows.map((row: DatabaseRow) => this.hydrate(row));
 
@@ -235,24 +219,18 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 
 		const countQuery = { ...this.query };
 		const countCompiled = dialect.compileCount(countQuery);
-		const countTables = this.extractTableNames();
-		const countResult = await orm.cachedSelect(
-			countCompiled.sql,
-			countCompiled.bindings,
-			countTables,
-		);
+		const countResult = await orm
+			.getAdapter()
+			.query(countCompiled.sql, countCompiled.bindings);
 		const total = countResult[0]?.count || 0;
 
 		const offset = (page - 1) * limit;
 		this.limit(limit).offset(offset);
 
 		const compiled = dialect.compileSelect(this.query);
-		const dataTables = this.extractTableNames();
-		const rows = await orm.cachedSelect(
-			compiled.sql,
-			compiled.bindings,
-			dataTables,
-		);
+		const rows = await orm
+			.getAdapter()
+			.query(compiled.sql, compiled.bindings);
 
 		const models = rows.map((row: DatabaseRow) => this.hydrate(row));
 
@@ -281,8 +259,6 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 				compiled.bindings,
 			);
 
-			const tables = this.extractTableNames();
-			orm.invalidateResultCache(tables);
 
 			return affected;
 		});
@@ -306,8 +282,6 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 				compiled.bindings,
 			);
 
-			const tables = this.extractTableNames();
-			orm.invalidateResultCache(tables);
 
 			return affected;
 		});
