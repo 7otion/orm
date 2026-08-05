@@ -112,8 +112,8 @@ export class SQLiteDialect implements SqlDialect {
 		let whereBindings: QueryValue[];
 
 		if (Array.isArray(primaryKey)) {
-			const keyArray = primaryKey as string[];
-			const idArray = Array.isArray(id) ? (id as QueryValue[]) : [id];
+			const keyArray = primaryKey;
+			const idArray = Array.isArray(id) ? id : [id];
 
 			if (keyArray.length !== idArray.length) {
 				throw new Error(
@@ -127,7 +127,7 @@ export class SQLiteDialect implements SqlDialect {
 			whereClause = whereParts.join(' AND ');
 			whereBindings = idArray;
 		} else {
-			whereClause = `${this.escapeIdentifier(primaryKey as string)} = ?`;
+			whereClause = `${this.escapeIdentifier(primaryKey)} = ?`;
 			whereBindings = [id as QueryValue];
 		}
 
@@ -146,8 +146,8 @@ export class SQLiteDialect implements SqlDialect {
 		let bindings: QueryValue[];
 
 		if (Array.isArray(primaryKey)) {
-			const keyArray = primaryKey as string[];
-			const idArray = Array.isArray(id) ? (id as QueryValue[]) : [id];
+			const keyArray = primaryKey;
+			const idArray = Array.isArray(id) ? id : [id];
 
 			if (keyArray.length !== idArray.length) {
 				throw new Error(
@@ -161,7 +161,7 @@ export class SQLiteDialect implements SqlDialect {
 			whereClause = whereParts.join(' AND ');
 			bindings = idArray;
 		} else {
-			whereClause = `${this.escapeIdentifier(primaryKey as string)} = ?`;
+			whereClause = `${this.escapeIdentifier(primaryKey)} = ?`;
 			bindings = [id as QueryValue];
 		}
 

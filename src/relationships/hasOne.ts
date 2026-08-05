@@ -1,14 +1,14 @@
-/**
- * HasOne Relationship
- *
- * Represents a one-to-one relationship.
- */
+/** One-to-one. */
 
 import { Relationship } from './relationship';
 import { QueryBuilder } from '../query-builder';
 import type { Model } from '../model';
+import { getAttribute, isRelationLoaded, setRelation } from '../internal';
 
-export class HasOne<T extends Model<T>> extends Relationship<T> {
+export class HasOne<T extends Model<T>, TClass = unknown> extends Relationship<
+	T,
+	TClass
+> {
 	getOwnerFields(): string[] {
 		return [this.localKey];
 	}
@@ -26,19 +26,17 @@ export class HasOne<T extends Model<T>> extends Relationship<T> {
 		models: Model<any>[],
 		relationName: string,
 	): Promise<void> {
-		const privateKey = `_${relationName}`;
+		if (models.every(m => isRelationLoaded(m, relationName))) return;
 
-		// Skip entirely if all models already have this relation loaded.
-		if (models.every(m => (m as any)[privateKey] !== undefined)) return;
+		const localValues = models.map(model =>
+			getAttribute(model, this.localKey),
+		);
 
-		const localValues = models.map(model => (model as any)[this.localKey]);
-
-		// Skip if all foreign key values are null/undefined
 		const hasNonNullValue = localValues.some(val => val != null);
 		if (!hasNonNullValue) {
 			for (const model of models) {
-				if ((model as any)[privateKey] === undefined) {
-					(model as any)[privateKey] = null;
+				if (!isRelationLoaded(model, relationName)) {
+					setRelation(model, relationName, null);
 				}
 			}
 			return;
@@ -55,17 +53,19 @@ export class HasOne<T extends Model<T>> extends Relationship<T> {
 
 		const relatedMap = new Map();
 		for (const related of relatedModels) {
-			const foreignValue = (related as any)[this.foreignKey];
+			const foreignValue = getAttribute(related, this.foreignKey);
 			relatedMap.set(foreignValue, related);
 		}
 
-		// Attach related models to parents using _relationshipName pattern
-		// This allows getWithSuspense() to access loaded data.
-		// Skip models that already have this relation set (partial-load guard).
+		// Partial-load guard, as in HasMany.
 		for (const model of models) {
-			if ((model as any)[privateKey] !== undefined) continue;
-			const localValue = (model as any)[this.localKey];
-			(model as any)[privateKey] = relatedMap.get(localValue) ?? null;
+			if (isRelationLoaded(model, relationName)) continue;
+			const localValue = getAttribute(model, this.localKey);
+			setRelation(
+				model,
+				relationName,
+				relatedMap.get(localValue) ?? null,
+			);
 		}
 	}
 }

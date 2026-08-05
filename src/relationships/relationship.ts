@@ -1,56 +1,48 @@
 /**
- * Base Relationship Class
- *
- * All relationship types (HasOne, HasMany, BelongsToMany, MorphTo) extend this class.
- *
- * Key Responsibilities:
- * - Define how to load related records (lazy loading)
- * - Define how to eager load for multiple parent models
- *
- * Relationship Pattern:
- * - Relationships are accessed as properties: user.posts
- * - Lazy loading: triggered by Proxy when property is accessed
- * - Eager loading: use with() on the parent query
+ * Base for every relationship kind. Subclasses supply `get()` for one parent
+ * and `eagerLoadFor()` for a batch, avoiding N+1 queries.
  */
 
-import type { Model, ModelConstructor } from '../model';
+import { getAttribute } from '../internal';
+import type { Model, ModelClassRef, ModelStatic } from '../model';
 
-// A related model can be passed directly or as a thunk (arrow function) to
-// break circular module dependencies between model files:
-//
-//   beats: this.hasMany(() => Beat, 'passage_id', 'id')
-//
-// Thunks must be arrow functions — they have no .prototype, which is how the
-// ORM distinguishes them from model constructors. When using a thunk, explicit
-// foreignKey and localKey are required because auto-inference reads the class
-// immediately and the class may not be resolved yet at that point.
-type RelatedResolver<T extends Model<T>> =
-	ModelConstructor<T> | (() => ModelConstructor<T>);
+// A thunk defers resolution, breaking circular imports between model files.
+// Thunks require explicit keys: inference reads the class immediately.
+export type RelatedResolver<T extends Model<T>> =
+	ModelStatic<T> | (() => ModelStatic<T>);
 
-export abstract class Relationship<T extends Model<T>> {
-	protected parentConstructor: ModelConstructor<any>;
+/** Arrow functions have no `.prototype`; class constructors always do. */
+function isThunk<T extends Model<T>>(
+	related: RelatedResolver<T>,
+): related is () => ModelStatic<T> {
+	return (related as { prototype?: unknown }).prototype === undefined;
+}
+
+export abstract class Relationship<T extends Model<T>, TClass = unknown> {
+	/**
+	 * Carries the related class type for RelationPath to recurse into.
+	 * Never assigned; `declare` emits nothing.
+	 */
+	declare readonly __relatedClass?: TClass;
+
+	// Never constructed — only read for name/config during key inference.
+	protected parentConstructor: ModelClassRef;
 	private _related: RelatedResolver<T>;
-	private _resolvedRelated: ModelConstructor<T> | undefined;
+	private _resolvedRelated: ModelStatic<T> | undefined;
 	protected foreignKey: string;
 	protected localKey: string;
 
-	// Lazily resolves the related model class. If _related is a thunk
-	// (arrow function, prototype === undefined) it is called once and the
-	// result cached. This defers resolution to query time, by which point all
-	// modules are fully loaded regardless of circular import order.
-	protected get related(): ModelConstructor<T> {
+	// Resolved once at query time, after every module has loaded.
+	protected get related(): ModelStatic<T> {
 		if (this._resolvedRelated === undefined) {
 			const r = this._related;
-			this._resolvedRelated =
-				r.prototype === undefined
-					? (r as () => ModelConstructor<T>)()
-					: (r as ModelConstructor<T>);
+			this._resolvedRelated = isThunk(r) ? r() : r;
 		}
 		return this._resolvedRelated;
 	}
 
 	constructor(
-		parent: ModelConstructor<any> | Model<any>,
+		parent: ModelClassRef | Model<any>,
 		related: RelatedResolver<T>,
 		foreignKey?: string,
 		localKey?: string,
@@ -59,16 +51,15 @@ export abstract class Relationship<T extends Model<T>> {
 			this.parentConstructor = parent;
 		} else {
 			this.parentConstructor =
-				parent.constructor as ModelConstructor<any>;
+				parent.constructor as unknown as ModelClassRef;
 		}
 
 		this._related = related;
 
-		// Arrow functions (thunks) have no .prototype; model classes always do.
-		const isThunk = related.prototype === undefined;
+		const thunked = isThunk(related);
 
 		if (!foreignKey) {
-			if (isThunk) {
+			if (thunked) {
 				throw new Error(
 					'[orm] Provide an explicit foreignKey when using a thunk for the related model.',
 				);
@@ -85,14 +76,13 @@ export abstract class Relationship<T extends Model<T>> {
 		}
 
 		if (!localKey) {
-			if (isThunk) {
+			if (thunked) {
 				throw new Error(
 					'[orm] Provide an explicit localKey when using a thunk for the related model.',
 				);
 			}
-			const pk =
-				(related as ModelConstructor<T>).config?.primaryKey || 'id';
-			// Relationships don't support composite primary keys - use first key
+			const pk = related.config?.primaryKey || 'id';
+			// Relations do not support composite keys; use the first.
 			this.localKey = Array.isArray(pk) ? pk[0]! : pk;
 		} else {
 			this.localKey = localKey;
@@ -100,7 +90,7 @@ export abstract class Relationship<T extends Model<T>> {
 	}
 
 	protected getParentKeyValue(parent: Model<any>): any {
-		return (parent as any)[this.localKey];
+		return getAttribute(parent, this.localKey);
 	}
 
 	/** Lazy path: load for one parent. */
@@ -115,10 +105,7 @@ export abstract class Relationship<T extends Model<T>> {
 	/** Owner columns this relation keys off, used to invalidate its cache. */
 	abstract getOwnerFields(): string[];
 
-	/**
-	 * Get the related model class
-	 */
-	getRelated(): ModelConstructor<T> {
+	getRelated(): ModelStatic<T> {
 		return this.related;
 	}
 

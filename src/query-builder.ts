@@ -9,17 +9,22 @@ import type {
 	WhereCondition,
 	WhereOperator,
 } from './types';
-import type { Model, ModelConstructor } from './model';
+import type { Model, ModelStatic } from './model';
 import { ORM } from './orm';
+import { findRelationship, getRelation } from './internal';
+import type { AnyRelations, RelationPath } from './relation-paths';
 
-export class QueryBuilder<T extends Model<T>> {
+export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 	private query: QueryStructure;
-	private modelClass: ModelConstructor<T>;
-	private eagerLoad: Map<string, () => any> = new Map();
+	// Only used to construct instances, so the minimal class type suffices.
+	private modelClass: ModelStatic<T>;
+	private eagerLoad = new Set<string>();
 
-	private relationshipConstraint?: (query: QueryBuilder<T>) => void;
+	private relationshipConstraint?: (
+		query: QueryBuilder<T, TRelations>,
+	) => void;
 
-	constructor(modelClass: ModelConstructor<T>, tableName: string) {
+	constructor(modelClass: ModelStatic<T>, tableName: string) {
 		this.modelClass = modelClass;
 		this.query = {
 			table: tableName,
@@ -39,7 +44,7 @@ export class QueryBuilder<T extends Model<T>> {
 
 		if (value === undefined) {
 			operator = '=';
-			actualValue = operatorOrValue as WhereValue;
+			actualValue = operatorOrValue;
 		} else {
 			operator = operatorOrValue as WhereOperator;
 			actualValue = value;
@@ -126,7 +131,7 @@ export class QueryBuilder<T extends Model<T>> {
 	orderByRaw(sql: string): this {
 		this.query.orders.push({
 			column: sql,
-			direction: 'raw' as OrderDirection,
+			direction: 'raw',
 		});
 		return this;
 	}
@@ -153,20 +158,13 @@ export class QueryBuilder<T extends Model<T>> {
 	}
 
 	/**
-	 * Specify relationships to eager load
-	 * Supports nested relationships with dot notation
-	 *
-	 * @example
-	 * // Single-level relationships
-	 * User.query().with('posts', 'profile').get()
-	 *
-	 * // Nested relationships
-	 * Post.query().with('category.contentType').get()
-	 * User.query().with('posts.comments.author').get()
+	 * Eager load relations, including nested dotted paths. Names are checked
+	 * against the model's `relationships` literal; models without one accept
+	 * any string.
 	 */
-	with(...relations: string[]): this {
+	with(...relations: RelationPath<TRelations>[]): this {
 		for (const relation of relations) {
-			this.eagerLoad.set(relation, relation as any);
+			this.eagerLoad.add(relation);
 		}
 		return this;
 	}
@@ -185,7 +183,7 @@ export class QueryBuilder<T extends Model<T>> {
 	}
 
 	setRelationshipConstraint(
-		constraint: (query: QueryBuilder<T>) => void,
+		constraint: (query: QueryBuilder<T, TRelations>) => void,
 	): this {
 		this.relationshipConstraint = constraint;
 		return this;
@@ -318,10 +316,10 @@ export class QueryBuilder<T extends Model<T>> {
 	private hydrate(row: DatabaseRow): T {
 		const model = new this.modelClass();
 
-		// Set internal state directly to avoid marking as dirty
-		(model as any)._attributes = { ...row };
-		(model as any)._original = { ...row };
-		(model as any)._exists = true;
+		// Set directly, so the model is not marked dirty.
+		model._attributes = { ...row };
+		model._original = { ...row };
+		model._exists = true;
 
 		return model;
 	}
@@ -330,9 +328,14 @@ export class QueryBuilder<T extends Model<T>> {
 		if (models.length === 0) return;
 
 		const firstModel = models[0];
-		const modelConstructor = firstModel!.constructor as any;
+		const modelConstructor = firstModel!.constructor as unknown as {
+			relationships: Record<string, unknown>;
+			afterEagerLoad?: (
+				paths: Iterable<string>,
+				models: T[],
+			) => Promise<void>;
+		};
 
-		// Access the static relationships getter
 		const relationships = modelConstructor.relationships;
 
 		if (!relationships || Object.keys(relationships).length === 0) {
@@ -347,8 +350,10 @@ export class QueryBuilder<T extends Model<T>> {
 					relationships,
 				);
 			} else {
-				// Single-level relationship (existing logic)
-				const relationship = relationships[relationName];
+				const relationship = findRelationship(
+					relationships,
+					relationName,
+				);
 
 				if (!relationship) {
 					// May still be handled by afterEagerLoad.
@@ -368,12 +373,11 @@ export class QueryBuilder<T extends Model<T>> {
 			);
 		}
 
-		// Stamp loaded paths onto each model so refresh() can replay them
+		// Recorded so refresh() can replay them.
 		for (const model of models) {
-			const m = model as any;
-			if (!m._loadedPaths) m._loadedPaths = new Set<string>();
+			model._loadedPaths ??= new Set<string>();
 			for (const path of this.eagerLoad.keys()) {
-				m._loadedPaths.add(path);
+				model._loadedPaths.add(path);
 			}
 		}
 	}
@@ -387,8 +391,10 @@ export class QueryBuilder<T extends Model<T>> {
 		const firstLevelRelation = relationParts[0]!;
 		const remainingRelations = relationParts.slice(1).join('.');
 
-		// First, load the top-level relationship
-		const relationship = relationships?.[firstLevelRelation];
+		const relationship = findRelationship(
+			relationships,
+			firstLevelRelation,
+		);
 
 		if (!relationship) {
 			throw new Error(
@@ -427,8 +433,7 @@ export class QueryBuilder<T extends Model<T>> {
 		const relatedModels: any[] = [];
 
 		for (const parentModel of parentModels) {
-			const privateKey = `_${relationName}`;
-			const loadedData = (parentModel as any)[privateKey];
+			const loadedData = getRelation(parentModel, relationName);
 
 			if (loadedData != null) {
 				if (Array.isArray(loadedData)) {
@@ -460,8 +465,10 @@ export class QueryBuilder<T extends Model<T>> {
 				relationships,
 			);
 		} else {
-			// Load the final level relationship
-			const relationship = relationships[remainingRelation];
+			const relationship = findRelationship(
+				relationships,
+				remainingRelation,
+			);
 
 			if (!relationship) {
 				throw new Error(

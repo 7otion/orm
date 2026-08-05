@@ -1,6 +1,4 @@
-/**
- * Model Base Class - Active Record pattern with automatic relationships
- */
+/** Active Record base class. */
 
 import { QueryBuilder } from './query-builder';
 import { HasOne } from './relationships/hasOne';
@@ -14,11 +12,14 @@ import { ChangeStateMixin } from './mixins/change-state.mixin';
 import { RelationshipLoaderMixin } from './mixins/relationship-loader.mixin';
 
 import type { ModelConfig, QueryValue, TimestampConfig } from './types';
+import {
+	findRelationship,
+	getRelation,
+	loadingKey,
+	setRelation,
+} from './internal';
+import type { AnyRelations } from './relation-paths';
 
-/**
- * Type for Model constructor
- * Used by QueryBuilder and relationships to instantiate models
- */
 export interface ModelConstructor<TModel extends Model<TModel>> {
 	new (): TModel;
 	config: ModelConfig;
@@ -31,10 +32,29 @@ export interface ModelConstructor<TModel extends Model<TModel>> {
 }
 
 /**
- * Base Model class with mixins for persistence, change tracking, and relationships
+ * `this` type for Model's statics.
  *
- * Uses interface merging to include mixin methods in type definitions
+ * TModel must stay inferable only from `new (): TModel`. A generic member here
+ * adds a second inference site and collapses TModel to `Model<any>`.
  */
+export interface ModelStatic<TModel extends Model<TModel>> {
+	new (): TModel;
+	readonly name: string;
+	config: ModelConfig;
+	getTableName(): string;
+}
+
+/**
+ * A model class that is read but never constructed. No construct signature, so
+ * abstract `Model` satisfies it.
+ */
+export interface ModelClassRef {
+	readonly name: string;
+	config: ModelConfig;
+	getTableName(): string;
+}
+
+/** Interface merging pulls the mixin methods into Model's type. */
 export interface Model<T extends Model<T>>
 	extends RecordPersistenceMixin, ChangeStateMixin, RelationshipLoaderMixin {}
 
@@ -62,29 +82,25 @@ export abstract class Model<T extends Model<T>> {
 		timestamps: true,
 	};
 
-	// @ts-ignore - Accessed by mixin methods
-	protected _attributes: Record<string, any> = {};
-	// @ts-ignore - Accessed by mixin methods
-	private _original: Record<string, any> = {};
-	// @ts-ignore - Accessed by mixin methods
-	private _exists: boolean = false;
-	// @ts-ignore - Store proxy reference for mixin methods
-	private _proxy?: any;
-
 	readonly relationships = {};
 
 	/**
-	 * Returns Proxy to enable natural property access and relationship getters
+	 * Wraps the instance in a Proxy so columns and relations read as plain
+	 * properties. `_`-prefixed state is declared on ModelState and initialised
+	 * here; declaring it on both sides would not merge.
 	 */
 	constructor() {
+		this._attributes = {};
+		this._original = {};
+		this._exists = false;
+
 		const proxy = new Proxy(this, {
 			get(target: any, prop: string | symbol) {
-				// Internal properties and symbols bypass proxy logic
 				if (typeof prop === 'symbol' || prop.startsWith('_')) {
 					return target[prop];
 				}
 
-				// Special case: return constructor without binding to preserve static properties
+				// Unbound, so statics stay reachable.
 				if (prop === 'constructor') {
 					return Object.getPrototypeOf(target).constructor;
 				}
@@ -125,9 +141,8 @@ export abstract class Model<T extends Model<T>> {
 
 				const ctor = Object.getPrototypeOf(target)
 					.constructor as typeof Model;
-				const relationships = ctor.relationships;
-				if (relationships && relationships[prop as string]) {
-					return target.getWithSuspense(prop as string);
+				if (findRelationship(ctor.relationships, prop)) {
+					return target.getWithSuspense(prop);
 				}
 
 				return undefined;
@@ -139,35 +154,43 @@ export abstract class Model<T extends Model<T>> {
 					return true;
 				}
 
-				// Check if it's a setter
-				const descriptor = Object.getOwnPropertyDescriptor(
-					Object.getPrototypeOf(target),
-					prop,
-				);
-				if (descriptor && descriptor.set) {
-					descriptor.set.call(target, value);
-					return true;
+				// Walk the full chain, as the get trap does: Model and mixin
+				// members sit one or more levels up, and missing them turns a
+				// write into a phantom column. Stops before Object.prototype,
+				// so a column named `toString` stays writable.
+				let descriptor: PropertyDescriptor | undefined;
+				let proto = Object.getPrototypeOf(target);
+				while (proto && proto !== Object.prototype && !descriptor) {
+					descriptor = Object.getOwnPropertyDescriptor(proto, prop);
+					proto = Object.getPrototypeOf(proto);
 				}
 
-				// Check if it's a method (shouldn't overwrite methods)
-				if (descriptor && typeof descriptor.value === 'function') {
-					return false;
+				if (descriptor) {
+					if (descriptor.set) {
+						descriptor.set.call(proxy, value);
+						return true;
+					}
+
+					// Read-only; falling through would shadow it with a column.
+					if (descriptor.get) {
+						return false;
+					}
+
+					if (typeof descriptor.value === 'function') {
+						return false;
+					}
 				}
 
-				// A declared relationship assigned directly (e.g.
-				// `asset.file = file`) must be stored in its backing field
-				// (`_file`), the same place loaders write to and the getter
-				// reads from — NOT in _attributes, where save() would try to
-				// persist it as a non-existent column.
+				// Relations go to their backing field, not _attributes, which
+				// save() would treat as a column.
 				const ctor = Object.getPrototypeOf(target)
 					.constructor as typeof Model;
-				const relationships = ctor.relationships;
-				if (relationships && relationships[prop as string]) {
-					target[`_${prop as string}`] = value;
+				if (findRelationship(ctor.relationships, prop)) {
+					target[`_${prop}`] = value;
 					return true;
 				}
 
-				target._attributes[prop as string] = value;
+				target._attributes[prop] = value;
 				return true;
 			},
 
@@ -196,7 +219,8 @@ export abstract class Model<T extends Model<T>> {
 		return proxy;
 	}
 
-	protected getConfig(): ModelConfig {
+	/** @internal Config with defaults applied. Public for the mixins' benefit. */
+	getConfig(): ModelConfig {
 		const constructor = this.constructor as typeof Model;
 		const config = constructor.config;
 
@@ -227,8 +251,8 @@ export abstract class Model<T extends Model<T>> {
 		}
 	}
 
-	// @ts-ignore - Accessed by mixin methods
-	private getTimestampConfig(): TimestampConfig | null {
+	/** @internal Resolved timestamp column names, or null when disabled. */
+	getTimestampConfig(): TimestampConfig | null {
 		const config = this.getConfig();
 
 		if (!config.timestamps) {
@@ -248,14 +272,14 @@ export abstract class Model<T extends Model<T>> {
 	get createdAt(): Date | null {
 		const tsConfig = this.getTimestampConfig();
 		if (!tsConfig) return null;
-		const val = (this as any)._attributes[tsConfig.created_at];
+		const val = this._attributes[tsConfig.created_at];
 		return val != null ? new Date(Number(val) * 1000) : null;
 	}
 
 	get updatedAt(): Date | null {
 		const tsConfig = this.getTimestampConfig();
 		if (!tsConfig) return null;
-		const val = (this as any)._attributes[tsConfig.updated_at];
+		const val = this._attributes[tsConfig.updated_at];
 		return val != null ? new Date(Number(val) * 1000) : null;
 	}
 
@@ -266,7 +290,7 @@ export abstract class Model<T extends Model<T>> {
 		}
 
 		if (!ModelClass._cachedTableName) {
-			const className = (this as any).name || 'Model';
+			const className = this.name || 'Model';
 			const snakeCase = className
 				.replace(/([A-Z])/g, '_$1')
 				.toLowerCase()
@@ -291,15 +315,30 @@ export abstract class Model<T extends Model<T>> {
 			.replace(/^-+|-+$/g, '');
 	}
 
-	static query(): QueryBuilder<any> {
-		const tableName = this.getTableName();
-		return new QueryBuilder(this as any, tableName);
+	/**
+	 * `this: ModelStatic<T>` binds T to the subclass the static is called on,
+	 * so `User.find()` returns `User | null`. Erased at runtime.
+	 */
+	static query<T extends Model<T>, R = AnyRelations>(
+		this: ModelStatic<T> & { readonly relationships?: R },
+	): QueryBuilder<T, R> {
+		return new QueryBuilder<T, R>(
+			this,
+			this.getTableName(),
+		);
 	}
 
-	static async find(id: QueryValue | QueryValue[]): Promise<any> {
+	static async find<T extends Model<T>>(
+		this: ModelStatic<T>,
+		id: QueryValue | QueryValue[],
+	): Promise<T | null> {
 		const primaryKey = this.config.primaryKey || 'id';
+		const newQuery = (): QueryBuilder<T> =>
+			new QueryBuilder<T>(
+				this,
+				this.getTableName(),
+			);
 
-		// Handle composite primary keys
 		if (Array.isArray(primaryKey)) {
 			const idArray = Array.isArray(id) ? id : [id];
 
@@ -309,7 +348,7 @@ export abstract class Model<T extends Model<T>> {
 				);
 			}
 
-			let query = this.query();
+			let query = newQuery();
 			for (let i = 0; i < primaryKey.length; i++) {
 				const key = primaryKey[i];
 				const value = idArray[i];
@@ -323,63 +362,81 @@ export abstract class Model<T extends Model<T>> {
 			return query.first();
 		}
 
-		// Handle single primary key
-		return this.query()
-			.where(primaryKey as string, id as QueryValue)
+		return newQuery()
+			.where(primaryKey, id as QueryValue)
 			.first();
 	}
 
-	static async all(): Promise<any[]> {
-		return this.query().get();
+	static async all<T extends Model<T>>(this: ModelStatic<T>): Promise<T[]> {
+		return new QueryBuilder<T>(
+			this,
+			this.getTableName(),
+		).get();
 	}
 
-	static async create(data: Record<string, any>): Promise<any> {
-		const model = new (this as any)();
+	static async create<T extends Model<T>>(
+		this: ModelStatic<T>,
+		data: Record<string, any>,
+	): Promise<T> {
+		const model = new this();
 
 		for (const [key, value] of Object.entries(data)) {
-			(model as any)[key] = value;
+			(model as Record<string, any>)[key] = value;
 		}
 
 		await model.save();
 		return model;
 	}
 
-	// ==================== Relationship Factory Methods ====================
-
-	protected static hasOne<R extends Model<R>>(
-		related: any,
+	protected static hasOne<C extends ModelStatic<any>>(
+		related: C | (() => C),
 		foreignKey?: string,
 		localKey?: string,
-	): HasOne<R> {
-		return new HasOne(this as any, related, foreignKey, localKey);
+	): HasOne<InstanceType<C>, C> {
+		return new HasOne(
+			this,
+			related,
+			foreignKey,
+			localKey,
+		);
 	}
 
-	protected static hasMany<R extends Model<R>>(
-		related: any,
+	protected static hasMany<C extends ModelStatic<any>>(
+		related: C | (() => C),
 		foreignKey?: string,
 		localKey?: string,
-	): HasMany<R> {
-		return new HasMany(this as any, related, foreignKey, localKey);
+	): HasMany<InstanceType<C>, C> {
+		return new HasMany(
+			this,
+			related,
+			foreignKey,
+			localKey,
+		);
 	}
 
-	protected static belongsTo<R extends Model<R>>(
-		related: any,
+	protected static belongsTo<C extends ModelStatic<any>>(
+		related: C | (() => C),
 		foreignKey?: string,
 		localKey?: string,
-	): BelongsTo<R> {
-		return new BelongsTo(this as any, related, foreignKey, localKey);
+	): BelongsTo<InstanceType<C>, C> {
+		return new BelongsTo(
+			this,
+			related,
+			foreignKey,
+			localKey,
+		);
 	}
 
-	protected static belongsToMany<R extends Model<R>>(
-		related: any,
+	protected static belongsToMany<C extends ModelStatic<any>>(
+		related: C,
 		pivotTable: string,
 		foreignPivotKey?: string,
 		relatedPivotKey?: string,
 		parentKey?: string,
 		relatedKey?: string,
-	): BelongsToMany<R> {
+	): BelongsToMany<InstanceType<C>, C> {
 		return new BelongsToMany(
-			this as any,
+			this,
 			related,
 			pivotTable,
 			foreignPivotKey,
@@ -392,26 +449,24 @@ export abstract class Model<T extends Model<T>> {
 	protected static morphTo<R extends Model<R>>(
 		config: MorphToConfig<R>,
 	): MorphTo<R> {
-		return new MorphTo(this as any, config);
+		return new MorphTo(this, config);
 	}
 
-	/**
-	 * Refresh the model instance from the database.
-	 *
-	 * refresh()              — reloads all previously eager-loaded relationships (including nested)
-	 * refresh(['a', 'b.c']) — reloads only the specified relationships instead
-	 */
+	/** Replays whatever was eager-loaded, or only the paths given. */
 	async refresh(relationships?: string[]): Promise<void> {
-		const self = this as any;
 		const config = this.getConfig();
 		const primaryKey = config.primaryKey || 'id';
 
-		// Build WHERE conditions for composite or single primary key
-		let query = (self.constructor as any).query();
+		const ModelClass = this.constructor as unknown as {
+			query(): QueryBuilder<Model<any>>;
+		};
 
+		let query = ModelClass.query();
+
+		// Only undefined/null mean "no key"; `0` and `''` are valid keys.
 		if (Array.isArray(primaryKey)) {
 			for (const key of primaryKey) {
-				const value = self._attributes[key];
+				const value = this._attributes[key];
 				if (value === undefined || value === null) {
 					throw new Error(
 						`Cannot refresh model without primary key value for ${key}`,
@@ -420,8 +475,8 @@ export abstract class Model<T extends Model<T>> {
 				query = query.where(key, value);
 			}
 		} else {
-			const primaryKeyValue = self._attributes[primaryKey];
-			if (!primaryKeyValue) {
+			const primaryKeyValue = this._attributes[primaryKey];
+			if (primaryKeyValue === undefined || primaryKeyValue === null) {
 				throw new Error(
 					'Cannot refresh model without a primary key value',
 				);
@@ -429,9 +484,8 @@ export abstract class Model<T extends Model<T>> {
 			query = query.where(primaryKey, primaryKeyValue);
 		}
 
-		// Determine which paths to reload
 		const paths: string[] = relationships ?? [
-			...((self._loadedPaths as Set<string>) ?? new Set<string>()),
+			...(this._loadedPaths ?? new Set<string>()),
 		];
 
 		if (paths.length > 0) {
@@ -442,28 +496,28 @@ export abstract class Model<T extends Model<T>> {
 
 		if (!fresh) {
 			const keyStr = Array.isArray(primaryKey)
-				? primaryKey.map(k => `${k}=${self._attributes[k]}`).join(', ')
-				: `${primaryKey}=${self._attributes[primaryKey]}`;
+				? primaryKey.map(k => `${k}=${this._attributes[k]}`).join(', ')
+				: `${primaryKey}=${this._attributes[primaryKey]}`;
 			throw new Error(`Model with ${keyStr} no longer exists`);
 		}
 
-		// Copy scalar attributes
-		self._attributes = { ...(fresh as any)._attributes };
-		self._original = { ...(fresh as any)._original };
-		self._exists = (fresh as any)._exists;
+		this._attributes = { ...fresh._attributes };
+		this._original = { ...fresh._original };
+		this._exists = fresh._exists;
 
+		// Drop stale in-flight promises, so no access awaits a superseded load.
+		const pending = this as unknown as Record<string, unknown>;
 		const topLevel = new Set(paths.map(p => p.split('.')[0]!));
 		for (const rel of topLevel) {
-			const privateKey = `_${rel}`;
-			const freshVal = (fresh as any)[privateKey];
-			if (freshVal !== undefined) {
-				self[privateKey] = freshVal;
-				delete self[`_loading_${rel}`];
+			const freshValue = getRelation(fresh, rel);
+			if (freshValue !== undefined) {
+				setRelation(this, rel, freshValue);
+				delete pending[loadingKey(rel)];
 			}
 		}
 
 		if (relationships !== undefined) {
-			self._loadedPaths = new Set(relationships);
+			this._loadedPaths = new Set(relationships);
 		}
 	}
 }

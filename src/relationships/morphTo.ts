@@ -1,17 +1,13 @@
-/**
- * Polymorphic Relationship - MorphTo
- *
- * Allows a model to belong to different model types based on a discriminator field.
- * Example: FileModel → VideoModel | ImageModel | DocumentModel based on file_type
- */
+/** Polymorphic: the target model is chosen by a discriminator column. */
 
 import type { Model } from '../model';
 import type { ModelConstructor } from '../model';
+import { getAttribute, setRelation } from '../internal';
 
 export interface MorphToConfig<T extends Model<T>> {
-	discriminatorField: string; // e.g., 'file_type'
-	foreignKeyField: string; // e.g., 'file_metadata_id'
-	morphMap: Record<string, ModelConstructor<any>>; // e.g., { video: VideoModel, image: ImageModel }
+	discriminatorField: string;
+	foreignKeyField: string;
+	morphMap: Record<string, ModelConstructor<any>>;
 }
 
 export class MorphTo<T extends Model<T>> {
@@ -50,24 +46,25 @@ export class MorphTo<T extends Model<T>> {
 		models: Model<any>[],
 		relationName: string,
 	): Promise<void> {
-		// Group models by discriminator value
 		const grouped = new Map<string, Model<any>[]>();
 
 		for (const model of models) {
-			const discriminatorValue = (model as any)[
-				this.config.discriminatorField
-			];
+			const discriminatorValue = getAttribute(
+				model,
+				this.config.discriminatorField,
+			);
 
 			if (!discriminatorValue) {
-				// No discriminator - set null
-				(model as any)[`_${relationName}`] = null;
+				setRelation(model, relationName, null);
 				continue;
 			}
 
-			if (!grouped.has(discriminatorValue)) {
-				grouped.set(discriminatorValue, []);
+			// morphMap is keyed by string; the column need not be one.
+			const kind = String(discriminatorValue);
+			if (!grouped.has(kind)) {
+				grouped.set(kind, []);
 			}
-			grouped.get(discriminatorValue)!.push(model);
+			grouped.get(kind)!.push(model);
 		}
 
 		for (const [discriminatorValue, groupedModels] of grouped.entries()) {
@@ -77,21 +74,19 @@ export class MorphTo<T extends Model<T>> {
 				console.warn(
 					`No model mapped for discriminator value: ${discriminatorValue}`,
 				);
-				// Set null for models with unknown discriminator
 				for (const model of groupedModels) {
-					(model as any)[`_${relationName}`] = null;
+					setRelation(model, relationName, null);
 				}
 				continue;
 			}
 
-			// Collect all foreign key values for this type
 			const foreignKeys = groupedModels
-				.map(model => (model as any)[this.config.foreignKeyField])
+				.map(model => getAttribute(model, this.config.foreignKeyField))
 				.filter(id => id !== null && id !== undefined);
 
 			if (foreignKeys.length === 0) {
 				for (const model of groupedModels) {
-					(model as any)[`_${relationName}`] = null;
+					setRelation(model, relationName, null);
 				}
 				continue;
 			}
@@ -107,15 +102,17 @@ export class MorphTo<T extends Model<T>> {
 
 			const relatedMap = new Map<any, any>();
 			for (const related of relatedModels) {
-				const id = (related as any)[pk];
+				const id = getAttribute(related, pk);
 				relatedMap.set(id, related);
 			}
 
-			// Attach related models to parents
 			for (const model of groupedModels) {
-				const foreignKey = (model as any)[this.config.foreignKeyField];
+				const foreignKey = getAttribute(
+					model,
+					this.config.foreignKeyField,
+				);
 				const related = relatedMap.get(foreignKey) || null;
-				(model as any)[`_${relationName}`] = related;
+				setRelation(model, relationName, related);
 			}
 		}
 	}

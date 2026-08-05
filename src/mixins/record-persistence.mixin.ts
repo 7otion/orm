@@ -1,17 +1,14 @@
-/**
- * Record Persistence Mixin
- *
- * Provides database write operations (save, delete) for Model instances.
- */
+/** save() / delete() for Model instances. */
 
 import { ORM } from '../orm';
 import type { QueryValue } from '../types';
 
-export class RecordPersistenceMixin {
+import { ModelState } from './model-state.mixin';
+
+export class RecordPersistenceMixin extends ModelState {
 	async save(): Promise<this> {
-		const self = this as any;
 		this.generateSlugIfNeeded();
-		if (!self._exists) {
+		if (!this._exists) {
 			return this.insert();
 		} else {
 			return this.update();
@@ -19,44 +16,41 @@ export class RecordPersistenceMixin {
 	}
 
 	protected generateSlugIfNeeded(): void {
-		const self = this as any;
-		const ModelClass = self.constructor;
+		const ModelClass = this.constructor as unknown as {
+			prototype: object;
+			generateSlug(value: string): string;
+		};
 
-		// Check if model has slug property defined
 		const hasSlugProperty =
-			'slug' in self || 'slug' in ModelClass.prototype;
+			'slug' in this || 'slug' in ModelClass.prototype;
 		if (!hasSlugProperty) return;
 
-		// Don't overwrite existing slug
-		if (self._attributes.slug) return;
+		if (this._attributes.slug) return;
 
-		// Find source field (name or title)
-		const sourceField = self._attributes.name || self._attributes.title;
+		const sourceField = this._attributes.name || this._attributes.title;
 		if (!sourceField || typeof sourceField !== 'string') return;
 
-		// Generate slug
-		self._attributes.slug = ModelClass.generateSlug(sourceField);
+		this._attributes.slug = ModelClass.generateSlug(sourceField);
 	}
 
 	protected async insert(): Promise<this> {
 		const orm = ORM.getInstance();
-		const self = this as any;
 
 		return orm.queueWrite(async () => {
 			const dialect = orm.getDialect();
 			const adapter = orm.getAdapter();
-			const config = self.getConfig();
-			const timestampConfig = self.getTimestampConfig();
+			const config = this.getConfig();
+			const timestampConfig = this.getTimestampConfig();
 
 			if (timestampConfig) {
 				const now = dialect.getCurrentTimestamp();
-				self._attributes[timestampConfig.created_at] = now;
-				self._attributes[timestampConfig.updated_at] = now;
+				this._attributes[timestampConfig.created_at] = now;
+				this._attributes[timestampConfig.updated_at] = now;
 			}
 
 			const compiled = dialect.compileInsert(
-				config.table,
-				self._attributes,
+				config.table!,
+				this._attributes,
 			);
 
 			const insertedId = await adapter.insert(
@@ -64,27 +58,26 @@ export class RecordPersistenceMixin {
 				compiled.bindings,
 			);
 
-			// Adopt the database-generated key only when the caller did not supply one.
-			// Composite keys are always caller-supplied, so they never adopt.
+			// Only adopt a generated key when none was supplied. Composite
+			// keys are always caller-supplied, so they never adopt.
 			if (!Array.isArray(config.primaryKey)) {
 				const primaryKey = config.primaryKey as string;
-				const supplied = self._attributes[primaryKey];
+				const supplied = this._attributes[primaryKey];
 				if (supplied === undefined || supplied === null) {
-					self._attributes[primaryKey] = insertedId;
+					this._attributes[primaryKey] = insertedId;
 				}
 			}
-			self._exists = true;
-			self._original = { ...self._attributes };
+			this._exists = true;
+			this._original = { ...this._attributes };
 
-			orm.invalidateResultCache([config.table]);
+			orm.invalidateResultCache([config.table!]);
 
 			return this;
 		});
 	}
 
 	protected async update(): Promise<this> {
-		const self = this as any;
-		if (!self._exists) {
+		if (!this._exists) {
 			throw new Error(
 				'Cannot update a model that does not exist. Use insert() instead.',
 			);
@@ -95,10 +88,10 @@ export class RecordPersistenceMixin {
 		const clearedRelationships = await orm.queueWrite(async () => {
 			const dialect = orm.getDialect();
 			const adapter = orm.getAdapter();
-			const config = self.getConfig();
-			const timestampConfig = self.getTimestampConfig();
+			const config = this.getConfig();
+			const timestampConfig = this.getTimestampConfig();
 
-			const dirtyFields = self.getDirty();
+			const dirtyFields = this.getDirty();
 
 			if (dirtyFields.length === 0) {
 				return [] as string[];
@@ -106,56 +99,68 @@ export class RecordPersistenceMixin {
 
 			const data: Record<string, QueryValue> = {};
 			for (const field of dirtyFields) {
-				data[field] = self._attributes[field];
+				data[field] = this._attributes[field];
 			}
 
 			if (timestampConfig) {
 				const now = dialect.getCurrentTimestamp();
 				data[timestampConfig.updated_at] = now;
-				self._attributes[timestampConfig.updated_at] = now;
+				this._attributes[timestampConfig.updated_at] = now;
 			}
 
-			// Get primary key value(s)
-			const primaryKey = config.primaryKey;
+			// Locate the row by its ORIGINAL key. A reassigned primary key
+			// already sits in _attributes, so keying off that would write
+			// nothing and report success.
+			const primaryKey = config.primaryKey!;
+			const keyOf = (key: string): QueryValue =>
+				key in this._original
+					? this._original[key]
+					: this._attributes[key];
+
 			let id: QueryValue | QueryValue[];
 
 			if (Array.isArray(primaryKey)) {
-				// Composite primary key
-				id = primaryKey.map(key => self._attributes[key]);
+				id = primaryKey.map(keyOf);
 			} else {
-				// Single primary key
-				id = self._attributes[primaryKey];
+				id = keyOf(primaryKey);
 			}
 
 			const compiled = dialect.compileUpdate(
-				config.table,
+				config.table!,
 				data,
 				primaryKey,
 				id,
 			);
 
-			await adapter.execute(compiled.sql, compiled.bindings);
+			const affected = await adapter.execute(
+				compiled.sql,
+				compiled.bindings,
+			);
 
-			self._original = { ...self._attributes };
+			if (affected === 0) {
+				throw new Error(
+					`Update affected no rows: no ${config.table} row matches ` +
+						`${Array.isArray(primaryKey) ? primaryKey.join('/') : primaryKey} = ` +
+						`${Array.isArray(id) ? id.join('/') : String(id)}.`,
+				);
+			}
 
-			const cleared: string[] =
-				self.clearAffectedRelationships(dirtyFields);
+			this._original = { ...this._attributes };
 
-			orm.invalidateResultCache([config.table]);
+			const cleared = this.clearAffectedRelationships(dirtyFields);
+
+			orm.invalidateResultCache([config.table!]);
 
 			return cleared;
 		});
 
-		await Promise.all(
-			clearedRelationships.map((name: string) => self.load(name)),
-		);
+		await Promise.all(clearedRelationships.map(name => this.load(name)));
 
 		return this;
 	}
 
 	async delete(): Promise<boolean> {
-		const self = this as any;
-		if (!self._exists) {
+		if (!this._exists) {
 			throw new Error('Cannot delete a model that does not exist.');
 		}
 
@@ -163,31 +168,28 @@ export class RecordPersistenceMixin {
 		return orm.queueWrite(async () => {
 			const dialect = orm.getDialect();
 			const adapter = orm.getAdapter();
-			const config = self.getConfig();
+			const config = this.getConfig();
 
-			// Get primary key value(s)
-			const primaryKey = config.primaryKey;
+			const primaryKey = config.primaryKey!;
 			let id: QueryValue | QueryValue[];
 
 			if (Array.isArray(primaryKey)) {
-				// Composite primary key
-				id = primaryKey.map(key => self._attributes[key]);
+				id = primaryKey.map(key => this._attributes[key]);
 			} else {
-				// Single primary key
-				id = self._attributes[primaryKey];
+				id = this._attributes[primaryKey];
 			}
 
 			const compiled = dialect.compileDelete(
-				config.table,
+				config.table!,
 				primaryKey,
 				id,
 			);
 
 			await adapter.execute(compiled.sql, compiled.bindings);
 
-			self._exists = false;
+			this._exists = false;
 
-			orm.invalidateResultCache([config.table]);
+			orm.invalidateResultCache([config.table!]);
 
 			return true;
 		});

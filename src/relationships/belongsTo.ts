@@ -1,14 +1,14 @@
-/**
- * BelongsTo Relationship
- *
- * Represents a "belongs to" relationship (inverse of HasOne/HasMany).
- */
+/** Inverse of HasOne / HasMany: the foreign key lives on the owner. */
 
 import { Relationship } from './relationship';
 import { QueryBuilder } from '../query-builder';
 import type { Model } from '../model';
+import { getAttribute, setRelation } from '../internal';
 
-export class BelongsTo<T extends Model<T>> extends Relationship<T> {
+export class BelongsTo<
+	T extends Model<T>,
+	TClass = unknown,
+> extends Relationship<T, TClass> {
 	constructor(
 		parent: any,
 		related: any,
@@ -41,7 +41,7 @@ export class BelongsTo<T extends Model<T>> extends Relationship<T> {
 		const tableName = this.related.getTableName();
 
 		const query = new QueryBuilder(this.related, tableName);
-		const foreignValue = (parent as any)[this.foreignKey];
+		const foreignValue = getAttribute(parent, this.foreignKey);
 		query.where(this.localKey, foreignValue);
 		return query.first();
 	}
@@ -50,15 +50,14 @@ export class BelongsTo<T extends Model<T>> extends Relationship<T> {
 		models: Model<any>[],
 		relationName: string,
 	): Promise<void> {
-		const foreignValues = models.map(
-			model => (model as any)[this.foreignKey],
+		const foreignValues = models.map(model =>
+			getAttribute(model, this.foreignKey),
 		);
 
-		// Skip if all foreign key values are null/undefined
 		const hasNonNullValue = foreignValues.some(val => val != null);
 		if (!hasNonNullValue) {
 			for (const model of models) {
-				(model as any)[`_${relationName}`] = null;
+				setRelation(model, relationName, null);
 			}
 			return;
 		}
@@ -74,16 +73,14 @@ export class BelongsTo<T extends Model<T>> extends Relationship<T> {
 
 		const relatedMap = new Map();
 		for (const related of relatedModels) {
-			const localValue = (related as any)[this.localKey];
+			const localValue = getAttribute(related, this.localKey);
 			relatedMap.set(localValue, related);
 		}
 
-		// Attach related models to parents using _relationshipName pattern
-		// This allows getWithSuspense() to access loaded data
 		for (const model of models) {
-			const foreignValue = (model as any)[this.foreignKey];
+			const foreignValue = getAttribute(model, this.foreignKey);
 			const related = relatedMap.get(foreignValue) || null;
-			(model as any)[`_${relationName}`] = related;
+			setRelation(model, relationName, related);
 		}
 	}
 }

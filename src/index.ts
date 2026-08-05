@@ -9,14 +9,12 @@
  */
 
 export { Model, type ModelConstructor } from './model';
+export type { RelationPath } from './relation-paths';
 export { ORM, type ORMConfig } from './orm';
 export type { DatabaseAdapter } from './adapter';
 export type { SqlDialect } from './dialect';
 export { QueryBuilder } from './query-builder';
-export { getRepository, type IRepository } from './repository';
 export { StatementCache } from './statement-cache';
-
-export { Relationship } from './relationships/relationship';
 
 export type {
 	DatabaseRow,

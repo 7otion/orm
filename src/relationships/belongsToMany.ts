@@ -1,15 +1,15 @@
-/**
- * BelongsToMany Relationship
- *
- * Represents a many-to-many relationship through a pivot table.
- */
+/** Many-to-many through a pivot table. */
 
 import { Relationship } from './relationship';
 import { QueryBuilder } from '../query-builder';
-import type { Model, ModelConstructor } from '../model';
+import type { Model, ModelClassRef, ModelStatic } from '../model';
 import { ORM } from '../orm';
+import { getAttribute, setRelation } from '../internal';
 
-export class BelongsToMany<T extends Model<T>> extends Relationship<T> {
+export class BelongsToMany<
+	T extends Model<T>,
+	TClass = unknown,
+> extends Relationship<T, TClass> {
 	private pivotTable: string;
 	private foreignPivotKey: string;
 	private relatedPivotKey: string;
@@ -17,8 +17,8 @@ export class BelongsToMany<T extends Model<T>> extends Relationship<T> {
 	private relatedKey: string;
 
 	constructor(
-		parent: ModelConstructor<any> | Model<any>,
-		related: ModelConstructor<T>,
+		parent: ModelClassRef | Model<any>,
+		related: ModelStatic<T>,
 		pivotTable: string,
 		foreignPivotKey?: string,
 		relatedPivotKey?: string,
@@ -88,16 +88,14 @@ export class BelongsToMany<T extends Model<T>> extends Relationship<T> {
 		models: Model<any>[],
 		relationName: string,
 	): Promise<void> {
-		// Collect all parent key values
-		const parentValues = models.map(
-			model => (model as any)[this.parentKey],
+		const parentValues = models.map(model =>
+			getAttribute(model, this.parentKey),
 		);
 
-		// Skip if all parent key values are null/undefined
 		const hasNonNullValue = parentValues.some(val => val != null);
 		if (!hasNonNullValue) {
 			for (const model of models) {
-				(model as any)[`_${relationName}`] = [];
+				setRelation(model, relationName, []);
 			}
 			return;
 		}
@@ -130,7 +128,7 @@ export class BelongsToMany<T extends Model<T>> extends Relationship<T> {
 
 		if (pivotRows.length === 0) {
 			for (const model of models) {
-				(model as any)[relationName] = [];
+				setRelation(model, relationName, []);
 			}
 			return;
 		}
@@ -139,7 +137,7 @@ export class BelongsToMany<T extends Model<T>> extends Relationship<T> {
 			...new Set(pivotRows.map((row: any) => row[this.relatedPivotKey])),
 		];
 
-		const tableName = (this.related as any).getTableName();
+		const tableName = this.related.getTableName();
 		const query = new QueryBuilder(this.related, tableName);
 
 		const relatedModels = await query
@@ -166,12 +164,10 @@ export class BelongsToMany<T extends Model<T>> extends Relationship<T> {
 			}
 		}
 
-		// Attach related models to parents using _relationshipName pattern
-		// This allows getWithSuspense() to access loaded data
 		for (const model of models) {
-			const parentValue = (model as any)[this.parentKey];
+			const parentValue = getAttribute(model, this.parentKey);
 			const related = parentRelatedMap.get(parentValue) || [];
-			(model as any)[`_${relationName}`] = related;
+			setRelation(model, relationName, related);
 		}
 	}
 }

@@ -1,31 +1,49 @@
-/**
- * Relationship Loader Mixin
- *
- * Provides relationship loading and management for Model instances.
- */
+/** Loads and invalidates relations on Model instances. */
 
-export class RelationshipLoaderMixin {
+import {
+	clearRelation,
+	findRelationship,
+	getRelation,
+	isRelationLoaded,
+	loadingKey,
+	setRelation,
+} from '../internal';
+
+import { ModelState } from './model-state.mixin';
+
+/** The subset of a Relationship this mixin calls. */
+interface LoadableRelationship {
+	get(parent: object): Promise<unknown>;
+	getOwnerFields(): string[];
+}
+
+export class RelationshipLoaderMixin extends ModelState {
 	/**
-	 * Helper for React Suspense-compatible relationship getters.
+	 * In-flight load promises, so concurrent `load()` calls for one relation
+	 * share a single query.
 	 */
-	protected getWithSuspense<R>(relationshipName: string): R {
-		const self = this as any;
-		const privateKey = `_${relationshipName}`;
+	private pending(): Record<string, Promise<void> | undefined> {
+		return this as unknown as Record<string, Promise<void> | undefined>;
+	}
 
-		if (self[privateKey] !== undefined) {
-			return self[privateKey];
+	/** Throws a promise on a miss, as Suspense requires. */
+	protected getWithSuspense<R>(relationshipName: string): R {
+		const pending = this.pending();
+
+		if (isRelationLoaded(this, relationshipName)) {
+			return getRelation(this, relationshipName) as R;
 		}
 
-		const loadingKey = `_loading_${relationshipName}`;
-		if (self[loadingKey]) {
-			throw self[loadingKey];
+		const key = loadingKey(relationshipName);
+		if (pending[key]) {
+			throw pending[key];
 		}
 
 		const promise = this.loadRelationship(relationshipName).then(() => {
-			delete self[loadingKey];
+			delete pending[key];
 		});
 
-		self[loadingKey] = promise;
+		pending[key] = promise;
 
 		console.warn(
 			`Relationship '${relationshipName}' is being loaded asynchronously. This may cause a delay in rendering. Consider preloading this relationship or using the load() method outside of React components.`,
@@ -33,64 +51,62 @@ export class RelationshipLoaderMixin {
 		throw promise;
 	}
 
-	/**
-	 * Explicitly load a relationship asynchronously (non-Suspense)
-	 * Use this outside of React components or when not using Suspense
-	 */
+	/** Await a relation without Suspense. */
 	async load(relationshipName: string): Promise<void> {
-		const self = this as any;
-		const privateKey = `_${relationshipName}`;
+		const pending = this.pending();
 
-		// If already loaded, return immediately
-		if (self[privateKey] !== undefined) {
+		if (isRelationLoaded(this, relationshipName)) {
 			return;
 		}
 
-		const loadingKey = `_loading_${relationshipName}`;
+		const key = loadingKey(relationshipName);
 
-		// If already loading, wait for it
-		if (self[loadingKey]) {
-			await self[loadingKey];
+		if (pending[key]) {
+			await pending[key];
 			return;
 		}
 
-		// Start loading
 		const promise = this.loadRelationship(relationshipName);
-		self[loadingKey] = promise;
+		pending[key] = promise;
 
 		try {
 			await promise;
-			delete self[loadingKey];
+			delete pending[key];
 		} catch (error) {
-			delete self[loadingKey];
+			delete pending[key];
 			throw error;
 		}
 	}
 
 	private async loadRelationship(relationshipName: string): Promise<void> {
-		const self = this as any;
-		const relationship = self.constructor.relationships[relationshipName];
+		const ModelClass = this.constructor as unknown as {
+			relationships: Record<string, unknown>;
+		} & Record<string, unknown>;
+
+		const relationship = findRelationship(
+			ModelClass.relationships,
+			relationshipName,
+		) as LoadableRelationship | undefined;
 
 		if (relationship) {
-			// Standard relationship loading
 			if (typeof relationship.get !== 'function') {
 				throw new Error(
 					`Relationship '${relationshipName}' must have a get() method`,
 				);
 			}
 
-			// Use the proxy if available, otherwise fall back to raw instance
-			const instance = self._proxy || this;
-			const result = await relationship.get(instance);
-			self[`_${relationshipName}`] = result;
+			const instance = this._proxy ?? this;
+			setRelation(
+				this,
+				relationshipName,
+				await relationship.get(instance),
+			);
 		} else {
-			// Check for custom relationship loader
 			const loaderMethodName = `load${relationshipName.charAt(0).toUpperCase()}${relationshipName.slice(1)}`;
-			const loaderMethod = self.constructor[loaderMethodName];
+			const loaderMethod = ModelClass[loaderMethodName];
 
 			if (typeof loaderMethod === 'function') {
 				await loaderMethod([this]);
-				// Assume the loader sets the appropriate private property
 			} else {
 				throw new Error(
 					`Relationship '${relationshipName}' not found in static relationships constant and no custom loader '${loaderMethodName}' available`,
@@ -99,24 +115,29 @@ export class RelationshipLoaderMixin {
 		}
 	}
 
-	/**
-	 * Selectively clear only the relationships whose owner-side key(s) appear in
-	 * the provided list of dirty field names.
-	 */
-	protected clearAffectedRelationships(dirtyFields: string[]): string[] {
-		const self = this as any;
+	/** Clears only relations whose owner keys are among the dirty fields. */
+	clearAffectedRelationships(dirtyFields: string[]): string[] {
+		const relationships = (
+			this.constructor as unknown as {
+				relationships: Record<string, unknown>;
+			}
+		).relationships;
+
 		const cleared: string[] = [];
 
-		for (const relationName in self.constructor.relationships) {
-			const relationship = self.constructor.relationships[relationName];
-			const ownerFields: string[] = relationship.getOwnerFields();
+		for (const relationName in relationships) {
+			const relationship = findRelationship(
+				relationships,
+				relationName,
+			) as LoadableRelationship | undefined;
+			if (!relationship) continue;
+
+			const ownerFields = relationship.getOwnerFields();
 
 			const isAffected = ownerFields.some(f => dirtyFields.includes(f));
 			if (!isAffected) continue;
 
-			const privateProp = `_${relationName}`;
-			if (privateProp in self) {
-				delete self[privateProp];
+			if (clearRelation(this, relationName)) {
 				cleared.push(relationName);
 			}
 		}
