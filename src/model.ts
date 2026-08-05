@@ -6,6 +6,7 @@ import { HasMany } from './relationships/hasMany';
 import { BelongsTo } from './relationships/belongsTo';
 import { BelongsToMany } from './relationships/belongsToMany';
 import { MorphTo, type MorphToConfig } from './relationships/morphTo';
+import { MorphMany, type MorphManyConfig } from './relationships/morphMany';
 
 import { RecordPersistenceMixin } from './mixins/record-persistence.mixin';
 import { ChangeStateMixin } from './mixins/change-state.mixin';
@@ -417,6 +418,17 @@ export abstract class Model<T extends Model<T>> {
 			parentKey,
 			relatedKey,
 		);
+	}
+
+	/**
+	 * Children in a table shared by several owner types, matched on the
+	 * discriminator as well as the foreign key.
+	 */
+	protected static morphMany<C extends ModelStatic<any>>(
+		related: C | (() => C),
+		config: MorphManyConfig,
+	): MorphMany<InstanceType<C>, C> {
+		return new MorphMany(this, related as never, config);
 	}
 
 	protected static morphTo<R extends Model<R>>(

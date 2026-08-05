@@ -5,6 +5,7 @@ import { HasMany } from './relationships/hasMany';
 import { BelongsTo } from './relationships/belongsTo';
 import { BelongsToMany } from './relationships/belongsToMany';
 import { MorphTo, type MorphToConfig } from './relationships/morphTo';
+import { MorphMany, type MorphManyConfig } from './relationships/morphMany';
 import { RecordPersistenceMixin } from './mixins/record-persistence.mixin';
 import { ChangeStateMixin } from './mixins/change-state.mixin';
 import { RelationshipLoaderMixin } from './mixins/relationship-loader.mixin';
@@ -80,6 +81,11 @@ export declare abstract class Model<T extends Model<T>> {
     protected static hasMany<C extends ModelStatic<any>>(related: C | (() => C), foreignKey?: string, localKey?: string): HasMany<InstanceType<C>, C>;
     protected static belongsTo<C extends ModelStatic<any>>(related: C | (() => C), foreignKey?: string, localKey?: string): BelongsTo<InstanceType<C>, C>;
     protected static belongsToMany<C extends ModelStatic<any>>(related: C, pivotTable: string, foreignPivotKey?: string, relatedPivotKey?: string, parentKey?: string, relatedKey?: string): BelongsToMany<InstanceType<C>, C>;
+    /**
+     * Children in a table shared by several owner types, matched on the
+     * discriminator as well as the foreign key.
+     */
+    protected static morphMany<C extends ModelStatic<any>>(related: C | (() => C), config: MorphManyConfig): MorphMany<InstanceType<C>, C>;
     protected static morphTo<R extends Model<R>>(config: MorphToConfig<R>): MorphTo<R>;
     /**
      * Bulk-assign columns, honouring `fillable`/`guarded`.
