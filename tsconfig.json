@@ -4,15 +4,12 @@
 		"module": "ESNext",
 		"lib": ["es2022", "DOM"],
 		"moduleResolution": "bundler",
+		"types": ["bun"],
+		"noEmit": true,
 		"strict": true,
 		"esModuleInterop": true,
 		"skipLibCheck": true,
 		"forceConsistentCasingInFileNames": true,
-		"declaration": true,
-		"declarationMap": true,
-		"sourceMap": true,
-		"outDir": "./dist",
-		"rootDir": "./src",
 		"resolveJsonModule": true,
 		"allowSyntheticDefaultImports": true,
 		"noUnusedLocals": true,
@@ -25,6 +22,6 @@
 		"strictBindCallApply": true,
 		"strictPropertyInitialization": false
 	},
-	"include": ["src/**/*"],
+	"include": ["src/**/*", "test/**/*"],
 	"exclude": ["node_modules", "dist", "examples"]
 }
