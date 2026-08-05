@@ -25,8 +25,7 @@ import type { Model, ModelConstructor } from '../model';
 // foreignKey and localKey are required because auto-inference reads the class
 // immediately and the class may not be resolved yet at that point.
 type RelatedResolver<T extends Model<T>> =
-	| ModelConstructor<T>
-	| (() => ModelConstructor<T>);
+	ModelConstructor<T> | (() => ModelConstructor<T>);
 
 export abstract class Relationship<T extends Model<T>> {
 	protected parentConstructor: ModelConstructor<any>;

@@ -64,9 +64,14 @@ export class RecordPersistenceMixin {
 				compiled.bindings,
 			);
 
-			// Only set auto-increment ID for single primary key
+			// Adopt the database-generated key only when the caller did not supply one.
+			// Composite keys are always caller-supplied, so they never adopt.
 			if (!Array.isArray(config.primaryKey)) {
-				self._attributes[config.primaryKey] = insertedId;
+				const primaryKey = config.primaryKey as string;
+				const supplied = self._attributes[primaryKey];
+				if (supplied === undefined || supplied === null) {
+					self._attributes[primaryKey] = insertedId;
+				}
 			}
 			self._exists = true;
 			self._original = { ...self._attributes };
