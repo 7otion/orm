@@ -70,7 +70,6 @@ export class RecordPersistenceMixin extends ModelState {
 			this._exists = true;
 			this._original = { ...this._attributes };
 
-
 			return this;
 		});
 	}
@@ -148,7 +147,6 @@ export class RecordPersistenceMixin extends ModelState {
 
 			const cleared = this.clearAffectedRelationships(dirtyFields);
 
-
 			return cleared;
 		});
 
@@ -186,7 +184,6 @@ export class RecordPersistenceMixin extends ModelState {
 			await adapter.execute(compiled.sql, compiled.bindings);
 
 			this._exists = false;
-
 
 			return true;
 		});

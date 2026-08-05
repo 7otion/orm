@@ -264,7 +264,6 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 				compiled.bindings,
 			);
 
-
 			return affected;
 		});
 	}
@@ -286,7 +285,6 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 				compiled.sql,
 				compiled.bindings,
 			);
-
 
 			return affected;
 		});

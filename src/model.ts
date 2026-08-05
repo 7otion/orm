@@ -322,10 +322,7 @@ export abstract class Model<T extends Model<T>> {
 	static query<T extends Model<T>, R = AnyRelations>(
 		this: ModelStatic<T> & { readonly relationships?: R },
 	): QueryBuilder<T, R> {
-		return new QueryBuilder<T, R>(
-			this,
-			this.getTableName(),
-		);
+		return new QueryBuilder<T, R>(this, this.getTableName());
 	}
 
 	static async find<T extends Model<T>>(
@@ -334,10 +331,7 @@ export abstract class Model<T extends Model<T>> {
 	): Promise<T | null> {
 		const primaryKey = this.config.primaryKey || 'id';
 		const newQuery = (): QueryBuilder<T> =>
-			new QueryBuilder<T>(
-				this,
-				this.getTableName(),
-			);
+			new QueryBuilder<T>(this, this.getTableName());
 
 		if (Array.isArray(primaryKey)) {
 			const idArray = Array.isArray(id) ? id : [id];
@@ -368,10 +362,7 @@ export abstract class Model<T extends Model<T>> {
 	}
 
 	static async all<T extends Model<T>>(this: ModelStatic<T>): Promise<T[]> {
-		return new QueryBuilder<T>(
-			this,
-			this.getTableName(),
-		).get();
+		return new QueryBuilder<T>(this, this.getTableName()).get();
 	}
 
 	static async create<T extends Model<T>>(
@@ -390,12 +381,7 @@ export abstract class Model<T extends Model<T>> {
 		foreignKey?: string,
 		localKey?: string,
 	): HasOne<InstanceType<C>, C> {
-		return new HasOne(
-			this,
-			related,
-			foreignKey,
-			localKey,
-		);
+		return new HasOne(this, related, foreignKey, localKey);
 	}
 
 	protected static hasMany<C extends ModelStatic<any>>(
@@ -403,12 +389,7 @@ export abstract class Model<T extends Model<T>> {
 		foreignKey?: string,
 		localKey?: string,
 	): HasMany<InstanceType<C>, C> {
-		return new HasMany(
-			this,
-			related,
-			foreignKey,
-			localKey,
-		);
+		return new HasMany(this, related, foreignKey, localKey);
 	}
 
 	protected static belongsTo<C extends ModelStatic<any>>(
@@ -416,12 +397,7 @@ export abstract class Model<T extends Model<T>> {
 		foreignKey?: string,
 		localKey?: string,
 	): BelongsTo<InstanceType<C>, C> {
-		return new BelongsTo(
-			this,
-			related,
-			foreignKey,
-			localKey,
-		);
+		return new BelongsTo(this, related, foreignKey, localKey);
 	}
 
 	protected static belongsToMany<C extends ModelStatic<any>>(

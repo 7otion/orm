@@ -6,7 +6,8 @@ import type { QueryValue } from './types';
  */
 
 /** A plain or dotted name, optionally ending in `*`. */
-const IDENTIFIER = /^(?:[A-Za-z_][A-Za-z0-9_$]*|\*)(?:\.(?:[A-Za-z_][A-Za-z0-9_$]*|\*))*$/;
+const IDENTIFIER =
+	/^(?:[A-Za-z_][A-Za-z0-9_$]*|\*)(?:\.(?:[A-Za-z_][A-Za-z0-9_$]*|\*))*$/;
 
 /**
  * Identifiers are interpolated into SQL, not bound, so anything that is not a
