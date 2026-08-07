@@ -475,3 +475,26 @@ export class ThunkLine extends Model<ThunkLine> {
 		passage: this.belongsTo(() => ThunkPassage, 'passage_ref', 'ref'),
 	};
 }
+
+/**
+ * A get-only accessor is `readonly` and so is not a column; an accessor with a
+ * setter is writable and so is one. `ColumnKeys` has to tell them apart.
+ */
+export class Settable extends Model<Settable> {
+	static config = { table: 'settables', timestamps: false };
+
+	id!: number;
+	raw_label!: string;
+
+	get computed(): string {
+		return this.raw_label.toUpperCase();
+	}
+
+	get label(): string {
+		return this.raw_label;
+	}
+
+	set label(value: string) {
+		this.raw_label = value;
+	}
+}

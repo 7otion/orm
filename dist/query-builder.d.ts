@@ -1,26 +1,36 @@
 /** Builds a QueryStructure for a SqlDialect to compile. Generates no SQL. */
-import type { OrderDirection, QueryStructure, QueryValue, WhereValue, WhereOperator } from './types';
+import type { OrderDirection, QueryStructure, QueryValue, WhereOperator } from './types';
 import type { Model, ModelStatic } from './model';
 import type { AnyRelations, RelationPath } from './relation-paths';
+import type { ColumnRef, Patch, ValueFor, ValueForOperator } from './columns';
 export declare class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
     private query;
     private modelClass;
     private eagerLoad;
     private relationshipConstraint?;
     constructor(modelClass: ModelStatic<T>, tableName: string);
-    /** Accepts `where(col, value)` or `where(col, operator, value)`. */
-    where(column: string, operatorOrValue: WhereOperator | QueryValue, value?: WhereValue): this;
+    /**
+     * `where(col, value)` or `where(col, operator, value)`.
+     *
+     * Split into two overloads rather than one `WhereOperator | QueryValue`
+     * parameter: that union absorbs into `string`, which lets any nonsense
+     * operator through. Separating them also lets the two-argument form check
+     * the value against the column's declared type.
+     */
+    where<K extends ColumnRef<T>>(column: K, value: ValueFor<T, K>): this;
+    where<K extends ColumnRef<T>, Op extends WhereOperator>(column: K, operator: Op, value: ValueForOperator<T, K, Op>): this;
     whereRaw(sql: string, bindings?: QueryValue[]): this;
-    whereIn(column: keyof T | string, values: QueryValue[]): this;
+    whereIn<K extends ColumnRef<T>>(column: K, values: ValueFor<T, K>[]): this;
     join(type: 'INNER' | 'LEFT' | 'RIGHT', table: string, first: string, operator: string, second: string): this;
     innerJoin(table: string, first: string, operator: string, second: string): this;
     leftJoin(table: string, first: string, operator: string, second: string): this;
-    orderBy(column: string, direction?: OrderDirection): this;
+    /** `'raw'` is reserved for `orderByRaw`, so it is not offered here. */
+    orderBy(column: ColumnRef<T>, direction?: Exclude<OrderDirection, 'raw'>): this;
     /** Emitted verbatim, for sorts the builder cannot express. */
     orderByRaw(sql: string): this;
     limit(limit: number): this;
     offset(offset: number): this;
-    select(...columns: (keyof T | string)[]): this;
+    select(...columns: ColumnRef<T>[]): this;
     /** Emitted verbatim, for aggregates and computed columns. */
     selectRaw(sql: string): this;
     /**
@@ -39,7 +49,7 @@ export declare class QueryBuilder<T extends Model<T>, TRelations = AnyRelations>
     /** Deletes matching rows in one queued statement, returning the count. */
     delete(): Promise<number>;
     /** Updates matching rows in one queued statement, returning the count. */
-    update(data: Record<string, QueryValue>): Promise<number>;
+    update(data: Patch<T>): Promise<number>;
     private hydrate;
     private loadRelationships;
     private loadNestedRelationship;

@@ -3,7 +3,12 @@
 import { Relationship } from './relationship';
 import { QueryBuilder } from '../query-builder';
 import type { Model } from '../model';
-import { getAttribute, isRelationLoaded, setRelation } from '../internal';
+import {
+	dynamicWhere,
+	getAttribute,
+	isRelationLoaded,
+	setRelation,
+} from '../internal';
 
 export class HasOne<T extends Model<T>, TClass = unknown> extends Relationship<
 	T,
@@ -18,7 +23,7 @@ export class HasOne<T extends Model<T>, TClass = unknown> extends Relationship<
 
 		const query = new QueryBuilder(this.related, tableName);
 		const localValue = this.getParentKeyValue(parent);
-		query.where(this.foreignKey, localValue);
+		dynamicWhere(query).where(this.foreignKey, localValue);
 		return query.first();
 	}
 
@@ -47,7 +52,7 @@ export class HasOne<T extends Model<T>, TClass = unknown> extends Relationship<
 		const tableName = this.related.getTableName();
 		const query = new QueryBuilder(this.related, tableName);
 
-		const relatedModels = await query
+		const relatedModels = await dynamicWhere(query)
 			.where(this.foreignKey, 'IN', uniqueValues)
 			.get();
 

@@ -7,6 +7,44 @@ import type { QueryValue } from './types';
  */
 export declare function assertIdentifier(value: string, kind: string): string;
 /**
+ * A query builder with the column check dropped.
+ *
+ * Structural, so this module still imports nothing from `query-builder.ts`,
+ * which imports this one.
+ */
+interface DynamicQuery<Q> {
+    where(column: string, operatorOrValue: unknown, value?: unknown): Q;
+}
+/**
+ * The one place the column check is deliberately dropped.
+ *
+ * Relationships filter on names taken from their own configuration — foreign
+ * keys, local keys, discriminators — which are `string` at the type level and
+ * so cannot be checked against `ColumnKeys`. Confining the cast here keeps
+ * `where` the single, fully typed entry point on the public surface: a
+ * `@internal`-tagged public method would still be callable by anyone, which
+ * would reopen exactly the hole the typing closes.
+ *
+ * The name is still identifier-validated at runtime by `where` itself.
+ */
+export declare function dynamicWhere<Q>(query: Q): DynamicQuery<Q>;
+/**
+ * The declaration a write to `prop` would hit, from anywhere on the prototype
+ * chain below `Object.prototype`.
+ *
+ * Stops where the Model proxy's `set` trap stops, so the two agree on what a
+ * write means: a column named `toString` is a column, not a method.
+ */
+export declare function findDeclaration(target: object, prop: string): PropertyDescriptor | undefined;
+/**
+ * Rejects a write the proxy would refuse anyway, but with a message that names
+ * the model, the property and the reason.
+ *
+ * Only reachable from untyped data: `fill`'s parameter type already excludes
+ * computed properties and methods.
+ */
+export declare function assertWritableColumn(model: object, prop: string): void;
+/**
  * Own keys only. `relationships[name]` resolves inherited Object.prototype
  * members, which would mistake `toString` for a relation.
  */
@@ -19,4 +57,5 @@ export declare function isRelationLoaded(model: object, name: string): boolean;
 /** Returns whether anything was actually cleared. */
 export declare function clearRelation(model: object, name: string): boolean;
 export declare function getAttribute(model: object, column: string): QueryValue;
+export {};
 //# sourceMappingURL=internal.d.ts.map

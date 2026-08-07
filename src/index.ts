@@ -9,6 +9,7 @@
  */
 
 export { Model, type ModelConstructor } from './model';
+export type { ColumnKeys, Columns, Patch } from './columns';
 export type { RelationPath } from './relation-paths';
 export { ORM, type ORMConfig } from './orm';
 export type { DatabaseAdapter } from './adapter';

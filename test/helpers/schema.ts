@@ -1,7 +1,7 @@
 /**
- * Schema backing the model fixtures. The mix of key styles is the point — it
- * is what surfaced the bug where INSERT overwrote a caller-supplied primary
- * key with lastInsertRowid.
+ * Schema backing the model fixtures. The mix of key styles — TEXT, UUID,
+ * AUTOINCREMENT and composite — is the point: it exercises primary key
+ * adoption across every case, not just the default.
  */
 
 export const SCHEMA = /* sql */ `

@@ -1,11 +1,6 @@
 /**
  * Primary key adoption on INSERT.
  *
- * This is the regression suite for the bug where every INSERT overwrote a
- * caller-supplied primary key with the adapter's lastInsertRowid — silently
- * destroying UUID and slug-style keys: every model without an
- * AUTOINCREMENT integer key.
- *
  * The rule under test: adopt the database-generated key ONLY when the caller
  * supplied no value for a single-column primary key. Never for composite keys.
  */
@@ -34,7 +29,6 @@ describe('primary key adoption on insert', () => {
 		passage.sort = 0;
 		await passage.save();
 
-		// The regression: this used to become 1 (lastInsertRowid).
 		expect(passage.ref).toBe('intro');
 
 		const reloaded = await Passage.query().where('ref', 'intro').first();
@@ -170,8 +164,6 @@ describe('primary key adoption on insert', () => {
 			pron_plural: 0,
 		});
 
-		// Callers used to have to re-assign the key after create() to work
-		// around the old bug; that should no longer be necessary.
 		expect(character.ref).toBe('alice');
 		expect(character.name).toBe('Alice');
 	});

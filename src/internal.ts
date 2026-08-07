@@ -27,6 +27,81 @@ export function assertIdentifier(value: string, kind: string): string {
 }
 
 /**
+ * A query builder with the column check dropped.
+ *
+ * Structural, so this module still imports nothing from `query-builder.ts`,
+ * which imports this one.
+ */
+interface DynamicQuery<Q> {
+	where(column: string, operatorOrValue: unknown, value?: unknown): Q;
+}
+
+/**
+ * The one place the column check is deliberately dropped.
+ *
+ * Relationships filter on names taken from their own configuration — foreign
+ * keys, local keys, discriminators — which are `string` at the type level and
+ * so cannot be checked against `ColumnKeys`. Confining the cast here keeps
+ * `where` the single, fully typed entry point on the public surface: a
+ * `@internal`-tagged public method would still be callable by anyone, which
+ * would reopen exactly the hole the typing closes.
+ *
+ * The name is still identifier-validated at runtime by `where` itself.
+ */
+export function dynamicWhere<Q>(query: Q): DynamicQuery<Q> {
+	return query as DynamicQuery<Q>;
+}
+
+/**
+ * The declaration a write to `prop` would hit, from anywhere on the prototype
+ * chain below `Object.prototype`.
+ *
+ * Stops where the Model proxy's `set` trap stops, so the two agree on what a
+ * write means: a column named `toString` is a column, not a method.
+ */
+export function findDeclaration(
+	target: object,
+	prop: string,
+): PropertyDescriptor | undefined {
+	let proto = Object.getPrototypeOf(target);
+	while (proto && proto !== Object.prototype) {
+		const descriptor = Object.getOwnPropertyDescriptor(proto, prop);
+		if (descriptor) return descriptor;
+		proto = Object.getPrototypeOf(proto);
+	}
+	return undefined;
+}
+
+/**
+ * Rejects a write the proxy would refuse anyway, but with a message that names
+ * the model, the property and the reason.
+ *
+ * Only reachable from untyped data: `fill`'s parameter type already excludes
+ * computed properties and methods.
+ */
+export function assertWritableColumn(model: object, prop: string): void {
+	const descriptor = findDeclaration(model, prop);
+	if (!descriptor || descriptor.set) return;
+
+	const model_name = model.constructor?.name ?? 'Model';
+
+	if (descriptor.get) {
+		throw new Error(
+			`[orm] ${model_name}.${prop} is a computed property, not a column, ` +
+				`so it cannot be filled. Assign the columns it derives from, ` +
+				`or give it a setter.`,
+		);
+	}
+
+	if (typeof descriptor.value === 'function') {
+		throw new Error(
+			`[orm] ${model_name}.${prop} is a method, not a column, so it ` +
+				`cannot be filled.`,
+		);
+	}
+}
+
+/**
  * Own keys only. `relationships[name]` resolves inherited Object.prototype
  * members, which would mistake `toString` for a relation.
  */

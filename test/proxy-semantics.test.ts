@@ -228,9 +228,8 @@ describe('methods and getters', () => {
 		await freshDatabase();
 		const line = await seedLine();
 
-		// Falling through here used to create a phantom `summary` attribute,
-		// which became a phantom column on the next UPDATE. Consumers had to
-		// work around it by excluding getters from their patch types.
+		// Falling through would create a phantom `summary` attribute, which
+		// becomes a phantom column on the next UPDATE.
 		expect(() => {
 			(line as unknown as Record<string, unknown>).summary = 'nope';
 		}).toThrow();
@@ -243,9 +242,8 @@ describe('methods and getters', () => {
 		await freshDatabase();
 		const line = await seedLine();
 
-		// `save` lives on Model.prototype, above Line.prototype. The set trap
-		// now walks the full chain the way the get trap does, so this is
-		// refused rather than silently becoming an attribute.
+		// `save` lives on Model.prototype, above Line.prototype, so this
+		// exercises the set trap's full chain walk, not just the immediate one.
 		expect(() => {
 			(line as unknown as Record<string, unknown>).save = 'nope';
 		}).toThrow();

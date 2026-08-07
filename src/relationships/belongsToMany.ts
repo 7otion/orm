@@ -4,7 +4,7 @@ import { Relationship } from './relationship';
 import { QueryBuilder } from '../query-builder';
 import type { Model, ModelClassRef, ModelStatic } from '../model';
 import { ORM } from '../orm';
-import { getAttribute, setRelation } from '../internal';
+import { dynamicWhere, getAttribute, setRelation } from '../internal';
 
 export class BelongsToMany<
 	T extends Model<T>,
@@ -76,7 +76,7 @@ export class BelongsToMany<
 			`${this.pivotTable}.${this.relatedPivotKey}`,
 		);
 
-		query.where(
+		dynamicWhere(query).where(
 			`${this.pivotTable}.${this.foreignPivotKey}`,
 			parentKeyValue,
 		);
@@ -140,7 +140,7 @@ export class BelongsToMany<
 		const tableName = this.related.getTableName();
 		const query = new QueryBuilder(this.related, tableName);
 
-		const relatedModels = await query
+		const relatedModels = await dynamicWhere(query)
 			.where(this.relatedKey, 'IN', relatedIds)
 			.get();
 

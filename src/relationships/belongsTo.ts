@@ -3,7 +3,7 @@
 import { Relationship } from './relationship';
 import { QueryBuilder } from '../query-builder';
 import type { Model } from '../model';
-import { getAttribute, setRelation } from '../internal';
+import { dynamicWhere, getAttribute, setRelation } from '../internal';
 
 export class BelongsTo<
 	T extends Model<T>,
@@ -42,7 +42,7 @@ export class BelongsTo<
 
 		const query = new QueryBuilder(this.related, tableName);
 		const foreignValue = getAttribute(parent, this.foreignKey);
-		query.where(this.localKey, foreignValue);
+		dynamicWhere(query).where(this.localKey, foreignValue);
 		return query.first();
 	}
 
@@ -67,7 +67,7 @@ export class BelongsTo<
 		const tableName = this.related.getTableName();
 		const query = new QueryBuilder(this.related, tableName);
 
-		const relatedModels = await query
+		const relatedModels = await dynamicWhere(query)
 			.where(this.localKey, 'IN', uniqueValues)
 			.get();
 

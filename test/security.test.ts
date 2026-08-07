@@ -12,11 +12,20 @@ import { Model } from '../src/model';
 import { Passage, User } from './helpers/models';
 import { freshDatabase } from './helpers/setup';
 
+/**
+ * These identifiers are now rejected twice: `ColumnRef` refuses them at compile
+ * time, and `assertIdentifier` refuses them at runtime. The `@ts-expect-error`
+ * on each call *is* the first assertion — delete one and the compiler reports
+ * an unused directive. The runtime assertion still has to hold, because typed
+ * callers are not the only callers: `any` from `JSON.parse`, a plain-JS
+ * consumer, or a cast all reach the same method.
+ */
 describe('identifier injection', () => {
 	test('where() rejects a column that is not a plain name', async () => {
 		await freshDatabase();
 
 		expect(() =>
+			// @ts-expect-error - not a column of User.
 			User.query().where('1=1 OR name IS NOT NULL --', 'x'),
 		).toThrow(/unsafe column/i);
 	});
@@ -24,6 +33,7 @@ describe('identifier injection', () => {
 	test('whereIn() rejects an injected column', async () => {
 		await freshDatabase();
 
+		// @ts-expect-error - not a column of User.
 		expect(() => User.query().whereIn('id) OR 1=1 --', [1])).toThrow(
 			/unsafe column/i,
 		);
@@ -32,6 +42,7 @@ describe('identifier injection', () => {
 	test('orderBy() rejects an injected column', async () => {
 		await freshDatabase();
 
+		// @ts-expect-error - not a column of User.
 		expect(() => User.query().orderBy('name; DROP TABLE users--')).toThrow(
 			/unsafe column/i,
 		);
@@ -40,6 +51,7 @@ describe('identifier injection', () => {
 	test('select() rejects an injected column', async () => {
 		await freshDatabase();
 
+		// @ts-expect-error - not a column of User.
 		expect(() => User.query().select('* FROM users; --')).toThrow(
 			/unsafe column/i,
 		);
@@ -85,6 +97,7 @@ describe('identifier injection', () => {
 		await freshDatabase();
 		await User.create({ name: 'ANN', status: 'active' });
 
+		// @ts-expect-error - an expression is not a column of User.
 		expect(() => User.query().where('LOWER(name)', 'ann')).toThrow(
 			/unsafe column/i,
 		);

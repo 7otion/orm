@@ -4,7 +4,12 @@ import { Relationship } from './relationship';
 import { QueryBuilder } from '../query-builder';
 import type { Model, ModelClassRef } from '../model';
 import type { RelatedResolver } from './relationship';
-import { getAttribute, isRelationLoaded, setRelation } from '../internal';
+import {
+	dynamicWhere,
+	getAttribute,
+	isRelationLoaded,
+	setRelation,
+} from '../internal';
 
 export interface MorphManyConfig {
 	/** Column on the related table naming the owner type. */
@@ -47,14 +52,13 @@ export class MorphMany<
 
 	/** Scopes a query to this owner type. */
 	private scoped(): QueryBuilder<T> {
-		return new QueryBuilder<T>(
-			this.related,
-			this.related.getTableName(),
+		return dynamicWhere(
+			new QueryBuilder<T>(this.related, this.related.getTableName()),
 		).where(this.discriminatorField, this.discriminatorValue);
 	}
 
 	async get(parent: Model<any>): Promise<T[]> {
-		return this.scoped()
+		return dynamicWhere(this.scoped())
 			.where(this.foreignKey, this.getParentKeyValue(parent))
 			.get();
 	}
@@ -80,7 +84,7 @@ export class MorphMany<
 
 		const uniqueValues = [...new Set(localValues.filter(v => v != null))];
 
-		const relatedModels = await this.scoped()
+		const relatedModels = await dynamicWhere(this.scoped())
 			.where(this.foreignKey, 'IN', uniqueValues)
 			.get();
 

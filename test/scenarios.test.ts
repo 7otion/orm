@@ -614,7 +614,6 @@ describe('relations and foreign keys', () => {
 		adapter.db.exec("DELETE FROM passages WHERE ref = 'intro'");
 
 		passage.title = 'Changed';
-		// Previously this resolved successfully while writing nothing.
 		await expect(passage.save()).rejects.toThrow(/affected no rows/i);
 	});
 

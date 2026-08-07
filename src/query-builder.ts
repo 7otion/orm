@@ -13,6 +13,7 @@ import type { Model, ModelStatic } from './model';
 import { ORM } from './orm';
 import { assertIdentifier, findRelationship, getRelation } from './internal';
 import type { AnyRelations, RelationPath } from './relation-paths';
+import type { ColumnRef, Patch, ValueFor, ValueForOperator } from './columns';
 
 export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 	private query: QueryStructure;
@@ -33,21 +34,32 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 		};
 	}
 
-	/** Accepts `where(col, value)` or `where(col, operator, value)`. */
-	where(
-		column: string,
-		operatorOrValue: WhereOperator | QueryValue,
-		value?: WhereValue,
-	): this {
+	/**
+	 * `where(col, value)` or `where(col, operator, value)`.
+	 *
+	 * Split into two overloads rather than one `WhereOperator | QueryValue`
+	 * parameter: that union absorbs into `string`, which lets any nonsense
+	 * operator through. Separating them also lets the two-argument form check
+	 * the value against the column's declared type.
+	 */
+	where<K extends ColumnRef<T>>(column: K, value: ValueFor<T, K>): this;
+	where<K extends ColumnRef<T>, Op extends WhereOperator>(
+		column: K,
+		operator: Op,
+		value: ValueForOperator<T, K, Op>,
+	): this;
+	// Implementation signature: not callable from outside, so it stays wide
+	// enough to cover both overloads.
+	where(column: string, operatorOrValue: unknown, value?: unknown): this {
 		let operator: WhereOperator;
 		let actualValue: WhereValue;
 
 		if (value === undefined) {
 			operator = '=';
-			actualValue = operatorOrValue;
+			actualValue = operatorOrValue as WhereValue;
 		} else {
 			operator = operatorOrValue as WhereOperator;
-			actualValue = value;
+			actualValue = value as WhereValue;
 		}
 
 		const condition: WhereCondition = {
@@ -72,12 +84,12 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 		return this;
 	}
 
-	whereIn(column: keyof T | string, values: QueryValue[]): this {
+	whereIn<K extends ColumnRef<T>>(column: K, values: ValueFor<T, K>[]): this {
 		this.query.wheres.push({
 			type: 'basic',
 			column: assertIdentifier(String(column), 'column'),
 			operator: 'IN',
-			value: values,
+			value: values as WhereValue,
 		});
 		return this;
 	}
@@ -122,9 +134,13 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 		return this.join('LEFT', table, first, operator, second);
 	}
 
-	orderBy(column: string, direction: OrderDirection = 'asc'): this {
+	/** `'raw'` is reserved for `orderByRaw`, so it is not offered here. */
+	orderBy(
+		column: ColumnRef<T>,
+		direction: Exclude<OrderDirection, 'raw'> = 'asc',
+	): this {
 		this.query.orders.push({
-			column: assertIdentifier(column, 'column'),
+			column: assertIdentifier(String(column), 'column'),
 			direction,
 		});
 		return this;
@@ -149,7 +165,7 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 		return this;
 	}
 
-	select(...columns: (keyof T | string)[]): this {
+	select(...columns: ColumnRef<T>[]): this {
 		this.query.columns = columns.map(c =>
 			assertIdentifier(String(c), 'column'),
 		);
@@ -269,7 +285,7 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 	}
 
 	/** Updates matching rows in one queued statement, returning the count. */
-	async update(data: Record<string, QueryValue>): Promise<number> {
+	async update(data: Patch<T>): Promise<number> {
 		if (this.relationshipConstraint) {
 			this.relationshipConstraint(this);
 		}
@@ -279,7 +295,10 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 			const dialect = orm.getDialect();
 			const adapter = orm.getAdapter();
 
-			const compiled = dialect.compileUpdateQuery(this.query, data);
+			const compiled = dialect.compileUpdateQuery(
+				this.query,
+				data as Record<string, QueryValue>,
+			);
 
 			const affected = await adapter.execute(
 				compiled.sql,

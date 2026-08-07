@@ -8,16 +8,17 @@
  * Assertions are written as call expressions inside functions rather than with
  * `ReturnType<>`, so they resolve the same way real user code does.
  *
- * Blocks marked `CURRENT:` pin behaviour that is expected to change. They
- * should be rewritten, not deleted, as the typing work lands.
+ * A `@ts-expect-error` is itself an assertion: if the call it guards stops
+ * being an error, the compiler reports the directive as unused and this file
+ * fails. Deleting one silently weakens the suite, so they are load-bearing.
  */
 
-import { Model } from '../src/model';
 import { QueryBuilder } from '../src/query-builder';
+import type { ColumnKeys, Patch } from '../src/columns';
 
 import { HasMany } from '../src/relationships/hasMany';
 
-import { Category, Line, Passage, Route } from './helpers/models';
+import { Category, Line, Passage, Route, Settable } from './helpers/models';
 
 /* ── assertion helpers ──────────────────────────────────────────────────── */
 
@@ -182,24 +183,72 @@ export function _relationPathsAreChecked() {
 
 export function _untypedModelsStillAcceptAnyString() {
 	// Category never declares a `relationships` literal, so its registry is an
-	// index signature. Such models keep the old permissive behaviour rather
-	// than becoming uncallable.
+	// index signature and stays permissive rather than becoming uncallable.
 	Category.query().with('whatever', 'nested.path');
 }
 
-/* ── CURRENT: operators and columns are still unchecked strings ─────────── */
+/* ── Operators and columns are checked against the model ────────────────── */
 
-export function _stringlyTypedSurfaces() {
+export function _queryIdentifiersAreChecked() {
 	const q = Passage.query();
 
-	// `WhereOperator | QueryValue` collapses to a plain string union, so a
-	// nonsense operator compiles. Target: reject this.
+	q.where('status', 'draft');
+	q.where('sort', '>', 1);
+	q.whereIn('ref', ['intro', 'hall']);
+	q.orderBy('sort', 'desc');
+	q.select('ref', 'title');
+
+	// Splitting `where` into two overloads means the operator is a real union
+	// again, instead of being absorbed into `string`.
+	// @ts-expect-error - '>>>' is not a WhereOperator.
 	q.where('sort', '>>>', 1);
 
-	// `whereIn`/`select` are declared `keyof T | string`, which absorbs to
-	// `string` — the `keyof T` half contributes nothing.
+	// @ts-expect-error - 'not_a_column' is not a column of Passage.
 	q.whereIn('not_a_column', [1]);
+	// @ts-expect-error - 'also_not_a_column' is not a column of Passage.
 	q.select('also_not_a_column');
+	// @ts-expect-error - 'nope' is not a column of Passage.
+	q.orderBy('nope');
+	// @ts-expect-error - 'raw' is reserved for orderByRaw().
+	q.orderBy('sort', 'raw');
+
+	// The two-argument form checks the value against the column's own type.
+	// @ts-expect-error - 'sort' is a number.
+	q.where('sort', 'not-a-number');
+	// @ts-expect-error - whereIn values follow the column type too.
+	q.whereIn('sort', ['a']);
+
+	// …and so does the three-argument form.
+	// @ts-expect-error - 'sort' is a number.
+	q.where('sort', '>', 'not-a-number');
+	// @ts-expect-error - 'ref' is a string.
+	q.where('ref', '>', 12345);
+
+	// The operator decides the shape, not just the type.
+	q.where('ref', 'IN', ['intro', 'hall']);
+	q.where('title', 'IS', null);
+	q.where('title', 'LIKE', '%intro%');
+
+	// @ts-expect-error - IN over a string column needs string values.
+	q.where('ref', 'IN', [1, 2]);
+	// @ts-expect-error - IN takes a list, not a single value.
+	q.where('ref', 'IN', 'intro');
+	// @ts-expect-error - IS only ever compares against null.
+	q.where('title', 'IS', 'intro');
+
+	// A relation is not a column, however it is spelled.
+	// @ts-expect-error - 'lines' is a relation of Passage.
+	q.where('lines', 1);
+}
+
+export function _qualifiedColumnsSurviveForJoins() {
+	// A join compares against a table the model type knows nothing about, so
+	// `table.column` stays open and is validated at runtime instead.
+	Passage.query()
+		.innerJoin('lines', 'lines.passage_ref', '=', 'passages.ref')
+		.where('lines.kind', 'say')
+		.select('passages.ref', 'lines.text')
+		.orderBy('lines.sort');
 }
 
 /* ── Instance surface ───────────────────────────────────────────────────── */
@@ -225,30 +274,79 @@ export async function _instanceSurfaceIsTyped() {
 	line.nope;
 }
 
-/* ── `keyof Model<T>` is part of the public contract ───────────────────── */
+/* ── Columns are derived from the class, not from a hand-written list ───── */
 
-// Consumers derive "editable columns" types by subtracting Model's own
-// members, so Model's *public member set* is load-bearing: adding a public
-// member to Model silently changes what downstream code treats as editable.
-type EditableLineFields = Partial<
-	Omit<
-		Line,
-		| keyof Model<Line>
-		| 'summary'
-		| 'ref'
-		| 'passage_ref'
-		| 'sort'
-		| 'kind'
-		| 'routes'
-	>
->;
+export function _columnsAreDerived() {
+	expectType<
+		Equal<
+			ColumnKeys<Line>,
+			| 'ref'
+			| 'passage_ref'
+			| 'sort'
+			| 'kind'
+			| 'text'
+			| 'character_ref'
+			| 'asset_ref'
+			| 'position'
+			| 'volume'
+			| 'return_to_caller'
+		>
+	>();
 
-expectType<'save' extends keyof EditableLineFields ? false : true>();
-expectType<'summary' extends keyof EditableLineFields ? false : true>();
-expectType<'text' extends keyof EditableLineFields ? true : false>();
-expectType<
-	Equal<EditableLineFields['character_ref'], string | null | undefined>
->();
+	// Column types survive.
+	expectType<
+		Equal<Patch<Line>['character_ref'], string | null | undefined>
+	>();
+
+	// Computed properties are `readonly` in the type system, which is what
+	// separates them from columns — no list required.
+	expectType<'summary' extends ColumnKeys<Line> ? false : true>();
+	expectType<'isReturnToCaller' extends ColumnKeys<Line> ? false : true>();
+
+	// Relations are model-typed, so they are not columns either.
+	expectType<'routes' extends ColumnKeys<Line> ? false : true>();
+
+	// Nor is anything Model itself contributes.
+	expectType<'save' extends ColumnKeys<Line> ? false : true>();
+	expectType<'isDirty' extends ColumnKeys<Line> ? false : true>();
+	expectType<'relationships' extends ColumnKeys<Line> ? false : true>();
+
+	// An accessor with a setter is writable, so it *is* a column.
+	expectType<'label' extends ColumnKeys<Settable> ? true : false>();
+}
+
+/* ── fill() / create() / update() accept exactly the columns ────────────── */
+
+export async function _writeSurfacesAreTyped() {
+	const line = (await Line.find('intro/a'))!;
+
+	line.fill({ text: 'hi', volume: 0.5 });
+	await Line.create({ ref: 'intro/b', passage_ref: 'intro', kind: 'say' });
+	await Line.query().where('ref', 'intro/a').update({ text: 'patched' });
+
+	// @ts-expect-error - computed property, not a column.
+	line.fill({ isReturnToCaller: true });
+	// @ts-expect-error - computed property, not a column.
+	line.fill({ summary: 'x' });
+	// @ts-expect-error - relation, not a column.
+	line.fill({ routes: [] });
+	// @ts-expect-error - not a column at all.
+	line.fill({ nope: 1 });
+	// @ts-expect-error - inherited method.
+	line.fill({ save: null });
+	// @ts-expect-error - wrong type for a real column.
+	line.fill({ text: 12345 });
+
+	// @ts-expect-error - create() is checked the same way.
+	await Line.create({ summary: 'x' });
+	// @ts-expect-error - and so is the bulk update.
+	await Line.query().update({ isReturnToCaller: true });
+
+	// `NoInfer` keeps `data` from widening T: without it the mapped type is a
+	// second inference site and `create` degrades to accepting anything.
+	const created = await Line.create({ ref: 'x' });
+	expectType<Equal<typeof created, Line>>();
+}
 
 /* ── The relationship registry: names survive, related types do not ─────── */
 
@@ -260,11 +358,9 @@ export function _relationshipRegistry() {
 	type PassageRelations = keyof typeof Passage.relationships;
 	expectType<Equal<PassageRelations, 'lines' | 'choices'>>();
 
-	// …and now the related model type survives too. The factories used to
-	// declare `related: any`, which degraded this to `HasMany<Model<unknown>>`
-	// and discarded the one piece of information `with()` needs.
-	// The second parameter carries the related class, which nested `with()`
-	// paths walk into.
+	// The related model type survives too: the relationship's second type
+	// parameter carries the related class, which nested `with()` paths walk
+	// into.
 	type LinesRelation = (typeof Passage.relationships)['lines'];
 	expectType<Equal<LinesRelation, HasMany<Line, typeof Line>>>();
 

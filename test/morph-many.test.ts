@@ -31,7 +31,13 @@ class MorphHotspot extends Model<MorphHotspot> {
 
 	ref!: string;
 	bg_asset_ref!: string;
+	mask_asset_ref!: string | null;
+	sort!: number;
 	label!: string;
+	x!: number;
+	y!: number;
+	w!: number;
+	h!: number;
 
 	conditions!: Condition[];
 
@@ -51,6 +57,7 @@ class MorphRoute extends Model<MorphRoute> {
 	ref!: string;
 	owner_kind!: string;
 	owner_ref!: string;
+	sort!: number;
 	goto_ref!: string;
 
 	conditions!: Condition[];

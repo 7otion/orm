@@ -2,7 +2,7 @@
 
 import type { Model } from '../model';
 import type { ModelConstructor } from '../model';
-import { getAttribute, setRelation } from '../internal';
+import { dynamicWhere, getAttribute, setRelation } from '../internal';
 
 export interface MorphToConfig<T extends Model<T>> {
 	discriminatorField: string;
@@ -96,7 +96,7 @@ export class MorphTo<T extends Model<T>> {
 			let pk = RelatedModel.config.primaryKey || 'id';
 			pk = Array.isArray(pk) ? pk[0]! : pk;
 
-			const relatedModels = await RelatedModel.query()
+			const relatedModels = await dynamicWhere(RelatedModel.query())
 				.where(pk, 'IN', uniqueForeignKeys)
 				.get();
 

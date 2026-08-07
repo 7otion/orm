@@ -11,6 +11,7 @@ import { ChangeStateMixin } from './mixins/change-state.mixin';
 import { RelationshipLoaderMixin } from './mixins/relationship-loader.mixin';
 import type { ModelConfig, QueryValue, TimestampConfig } from './types';
 import type { AnyRelations } from './relation-paths';
+import type { Patch } from './columns';
 export interface ModelConstructor<TModel extends Model<TModel>> {
     new (): TModel;
     config: ModelConfig;
@@ -19,7 +20,7 @@ export interface ModelConstructor<TModel extends Model<TModel>> {
     query(): QueryBuilder<TModel>;
     find(id: QueryValue): Promise<TModel | null>;
     all(): Promise<TModel[]>;
-    create(data: Record<string, any>): Promise<TModel>;
+    create(data: Patch<TModel>): Promise<TModel>;
 }
 /**
  * `this` type for Model's statics.
@@ -51,7 +52,17 @@ export declare abstract class Model<T extends Model<T>> {
     protected static defineRelationships(): Record<string, any>;
     static get relationships(): Record<string, any>;
     static config: ModelConfig;
-    readonly relationships: {};
+    /**
+     * @internal Phantom nominal marker. `declare` emits nothing, so no instance
+     * ever carries it at runtime.
+     *
+     * `ColumnKeys` uses this to recognise a relation. The obvious structural
+     * test — `V extends Model<any>` — would compare every member including
+     * `fill`, whose parameter type is itself derived from `ColumnKeys`; two
+     * models that reference each other then make that check circular. Matching
+     * one marker property instead terminates immediately.
+     */
+    readonly __model: true;
     /**
      * Wraps the instance in a Proxy so columns and relations read as plain
      * properties. `_`-prefixed state is declared on ModelState and initialised
@@ -76,7 +87,12 @@ export declare abstract class Model<T extends Model<T>> {
     }): QueryBuilder<T, R>;
     static find<T extends Model<T>>(this: ModelStatic<T>, id: QueryValue | QueryValue[]): Promise<T | null>;
     static all<T extends Model<T>>(this: ModelStatic<T>): Promise<T[]>;
-    static create<T extends Model<T>>(this: ModelStatic<T>, data: Record<string, any>): Promise<T>;
+    /**
+     * `NoInfer` keeps `data` from acting as a second inference site: `T` must
+     * come from `this` alone, or a mapped type over it collapses `T` to
+     * `Model<any>` and the column check erases itself.
+     */
+    static create<T extends Model<T>>(this: ModelStatic<T>, data: NoInfer<Patch<T>>): Promise<T>;
     protected static hasOne<C extends ModelStatic<any>>(related: C | (() => C), foreignKey?: string, localKey?: string): HasOne<InstanceType<C>, C>;
     protected static hasMany<C extends ModelStatic<any>>(related: C | (() => C), foreignKey?: string, localKey?: string): HasMany<InstanceType<C>, C>;
     protected static belongsTo<C extends ModelStatic<any>>(related: C | (() => C), foreignKey?: string, localKey?: string): BelongsTo<InstanceType<C>, C>;
@@ -90,12 +106,17 @@ export declare abstract class Model<T extends Model<T>> {
     /**
      * Bulk-assign columns, honouring `fillable`/`guarded`.
      *
-     * Unlike `Object.assign`, this never writes an ORM-internal (`_`-prefixed)
-     * key, so an untrusted request body cannot corrupt persistence state. A
-     * model declaring neither `fillable` nor `guarded` still accepts every
-     * column, so set one before filling from user input.
+     * The parameter type is derived from the class's own field declarations, so
+     * relations, computed properties and unknown keys are rejected at compile
+     * time without the author maintaining a second list.
+     *
+     * `fillable`/`guarded` remain the *runtime* guard, for data that arrives
+     * untyped — a request body, an import file, `JSON.parse`. Unlike
+     * `Object.assign`, this never writes an ORM-internal (`_`-prefixed) key, so
+     * such a payload cannot corrupt persistence state. A model declaring neither
+     * still accepts every column, so set one before filling from user input.
      */
-    fill(data: Record<string, unknown>): this;
+    fill(data: Patch<T>): this;
     /** Replays whatever was eager-loaded, or only the paths given. */
     refresh(relationships?: string[]): Promise<void>;
 }

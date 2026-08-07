@@ -14,12 +14,16 @@ import { RelationshipLoaderMixin } from './mixins/relationship-loader.mixin';
 
 import type { ModelConfig, QueryValue, TimestampConfig } from './types';
 import {
+	assertWritableColumn,
+	dynamicWhere,
+	findDeclaration,
 	findRelationship,
 	getRelation,
 	loadingKey,
 	setRelation,
 } from './internal';
 import type { AnyRelations } from './relation-paths';
+import type { Patch } from './columns';
 
 export interface ModelConstructor<TModel extends Model<TModel>> {
 	new (): TModel;
@@ -29,7 +33,7 @@ export interface ModelConstructor<TModel extends Model<TModel>> {
 	query(): QueryBuilder<TModel>;
 	find(id: QueryValue): Promise<TModel | null>;
 	all(): Promise<TModel[]>;
-	create(data: Record<string, any>): Promise<TModel>;
+	create(data: Patch<TModel>): Promise<TModel>;
 }
 
 /**
@@ -83,7 +87,23 @@ export abstract class Model<T extends Model<T>> {
 		timestamps: true,
 	};
 
-	readonly relationships = {};
+	/**
+	 * @internal Phantom nominal marker. `declare` emits nothing, so no instance
+	 * ever carries it at runtime.
+	 *
+	 * `ColumnKeys` uses this to recognise a relation. The obvious structural
+	 * test — `V extends Model<any>` — would compare every member including
+	 * `fill`, whose parameter type is itself derived from `ColumnKeys`; two
+	 * models that reference each other then make that check circular. Matching
+	 * one marker property instead terminates immediately.
+	 */
+	declare readonly __model: true;
+
+	// Deliberately no instance-level `relationships` field: every caller goes
+	// through `this.constructor.relationships`, the static. An instance-level
+	// field would be an own property sitting below the proxy's `set` trap
+	// (which walks only the prototype chain), so it would be fillable and
+	// would shadow the static under `get`.
 
 	/**
 	 * Wraps the instance in a Proxy so columns and relations read as plain
@@ -155,16 +175,11 @@ export abstract class Model<T extends Model<T>> {
 					return true;
 				}
 
-				// Walk the full chain, as the get trap does: Model and mixin
-				// members sit one or more levels up, and missing them turns a
-				// write into a phantom column. Stops before Object.prototype,
-				// so a column named `toString` stays writable.
-				let descriptor: PropertyDescriptor | undefined;
-				let proto = Object.getPrototypeOf(target);
-				while (proto && proto !== Object.prototype && !descriptor) {
-					descriptor = Object.getOwnPropertyDescriptor(proto, prop);
-					proto = Object.getPrototypeOf(proto);
-				}
+				// Shared with `assertWritableColumn`, which reports on a write
+				// this trap would refuse. The two must agree on what counts as
+				// a declaration, so they resolve it the same way rather than
+				// each walking the chain themselves.
+				const descriptor = findDeclaration(target, prop);
 
 				if (descriptor) {
 					if (descriptor.set) {
@@ -352,12 +367,12 @@ export abstract class Model<T extends Model<T>> {
 						'Unexpected undefined in composite primary key',
 					);
 				}
-				query = query.where(key, value);
+				query = dynamicWhere(query).where(key, value);
 			}
 			return query.first();
 		}
 
-		return newQuery()
+		return dynamicWhere(newQuery())
 			.where(primaryKey, id as QueryValue)
 			.first();
 	}
@@ -366,9 +381,14 @@ export abstract class Model<T extends Model<T>> {
 		return new QueryBuilder<T>(this, this.getTableName()).get();
 	}
 
+	/**
+	 * `NoInfer` keeps `data` from acting as a second inference site: `T` must
+	 * come from `this` alone, or a mapped type over it collapses `T` to
+	 * `Model<any>` and the column check erases itself.
+	 */
 	static async create<T extends Model<T>>(
 		this: ModelStatic<T>,
-		data: Record<string, any>,
+		data: NoInfer<Patch<T>>,
 	): Promise<T> {
 		const model = new this();
 		model.fill(data);
@@ -440,21 +460,33 @@ export abstract class Model<T extends Model<T>> {
 	/**
 	 * Bulk-assign columns, honouring `fillable`/`guarded`.
 	 *
-	 * Unlike `Object.assign`, this never writes an ORM-internal (`_`-prefixed)
-	 * key, so an untrusted request body cannot corrupt persistence state. A
-	 * model declaring neither `fillable` nor `guarded` still accepts every
-	 * column, so set one before filling from user input.
+	 * The parameter type is derived from the class's own field declarations, so
+	 * relations, computed properties and unknown keys are rejected at compile
+	 * time without the author maintaining a second list.
+	 *
+	 * `fillable`/`guarded` remain the *runtime* guard, for data that arrives
+	 * untyped — a request body, an import file, `JSON.parse`. Unlike
+	 * `Object.assign`, this never writes an ORM-internal (`_`-prefixed) key, so
+	 * such a payload cannot corrupt persistence state. A model declaring neither
+	 * still accepts every column, so set one before filling from user input.
 	 */
-	fill(data: Record<string, unknown>): this {
+	fill(data: Patch<T>): this {
 		const { fillable, guarded } = (this.constructor as typeof Model).config;
 
-		for (const [key, value] of Object.entries(data)) {
+		for (const [key, value] of Object.entries(
+			data as Record<string, unknown>,
+		)) {
 			if (key.startsWith('_')) continue;
 			if (fillable) {
 				if (!fillable.includes(key)) continue;
 			} else if (guarded?.includes(key)) {
 				continue;
 			}
+
+			// Typed callers cannot reach this, but untyped ones can, and the
+			// proxy's own refusal is an unlabelled TypeError.
+			assertWritableColumn(this, key);
+
 			(this as Record<string, unknown>)[key] = value;
 		}
 
@@ -481,7 +513,7 @@ export abstract class Model<T extends Model<T>> {
 						`Cannot refresh model without primary key value for ${key}`,
 					);
 				}
-				query = query.where(key, value);
+				query = dynamicWhere(query).where(key, value);
 			}
 		} else {
 			const primaryKeyValue = this._attributes[primaryKey];
@@ -490,7 +522,7 @@ export abstract class Model<T extends Model<T>> {
 					'Cannot refresh model without a primary key value',
 				);
 			}
-			query = query.where(primaryKey, primaryKeyValue);
+			query = dynamicWhere(query).where(primaryKey, primaryKeyValue);
 		}
 
 		const paths: string[] = relationships ?? [
