@@ -508,6 +508,7 @@ export abstract class Model<T extends Model<T>> {
 			data as Record<string, unknown>,
 		)) {
 			if (key.startsWith('_')) continue;
+			if (value === undefined) continue;
 			// The ORM stamps these itself; a supplied one is always stale.
 			if (timestamps.owns(key)) continue;
 			if (fillable) {

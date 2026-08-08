@@ -57,5 +57,9 @@ export declare function isRelationLoaded(model: object, name: string): boolean;
 /** Returns whether anything was actually cleared. */
 export declare function clearRelation(model: object, name: string): boolean;
 export declare function getAttribute(model: object, column: string): QueryValue;
+/**
+ * Drops keys whose value is `undefined`.
+ */
+export declare function omitUndefined<T extends Record<string, unknown>>(data: T): T;
 export {};
 //# sourceMappingURL=internal.d.ts.map

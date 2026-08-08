@@ -156,3 +156,15 @@ export function clearRelation(model: object, name: string): boolean {
 export function getAttribute(model: object, column: string): QueryValue {
 	return host(model)[column] as QueryValue;
 }
+
+/**
+ * Drops keys whose value is `undefined`.
+ */
+export function omitUndefined<T extends Record<string, unknown>>(data: T): T {
+	const out: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(data)) {
+		if (value === undefined) continue;
+		out[key] = value;
+	}
+	return out as T;
+}

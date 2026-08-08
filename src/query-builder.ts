@@ -11,7 +11,12 @@ import type {
 } from './types';
 import type { Model, ModelStatic } from './model';
 import { ORM } from './orm';
-import { assertIdentifier, findRelationship, getRelation } from './internal';
+import {
+	assertIdentifier,
+	findRelationship,
+	getRelation,
+	omitUndefined,
+} from './internal';
 import type { AnyRelations, RelationPath } from './relation-paths';
 import type { ColumnRef, Patch, ValueFor, ValueForOperator } from './columns';
 
@@ -297,11 +302,13 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 
 			const timestamps = this.modelClass.timestamps;
 			const stamped = timestamps.strip(
-				data as Record<string, QueryValue>,
+				omitUndefined(data as Record<string, QueryValue>),
 			);
 			if (timestamps.columns) {
 				stamped[timestamps.columns.updated_at] = timestamps.now();
 			}
+
+			if (Object.keys(stamped).length === 0) return 0;
 
 			const compiled = dialect.compileUpdateQuery(
 				this.query,

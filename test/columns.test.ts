@@ -164,6 +164,140 @@ describe('fill() and non-columns', () => {
 	});
 });
 
+/**
+ * A column has two states, present and NULL. `undefined` is neither, so it can
+ * only mean "not supplied" — which matters because TypeScript cannot tell
+ * `{ x: undefined }` from `{}` without `exactOptionalPropertyTypes`, so a patch
+ * assembled conditionally has no other way to say it.
+ */
+describe('undefined means "not supplied", null means NULL', () => {
+	test('fill() skips an undefined value', async () => {
+		await freshDatabase();
+
+		const line = await Line.create({
+			ref: 'intro/a',
+			passage_ref: 'intro',
+			kind: 'say',
+			text: 'hello',
+		});
+
+		line.fill({ text: undefined });
+
+		expect(line.text).toBe('hello');
+		expect(line.getDirty()).toEqual([]);
+	});
+
+	test('fill() writes NULL for an explicit null', async () => {
+		await freshDatabase();
+
+		const line = await Line.create({
+			ref: 'intro/a',
+			passage_ref: 'intro',
+			kind: 'say',
+			text: 'hello',
+		});
+
+		// The `trimmed || null` idiom depends on this: clearing a field is a
+		// real write, not a no-op.
+		line.fill({ text: null });
+		await line.save();
+
+		expect((await Line.find('intro/a'))!.text).toBeNull();
+	});
+
+	test('an undefined key is indistinguishable from an absent one', async () => {
+		await freshDatabase();
+
+		const line = await Line.create({
+			ref: 'intro/a',
+			passage_ref: 'intro',
+			kind: 'say',
+			text: 'hello',
+		});
+
+		line.fill({});
+		const afterAbsent = line.getDirty();
+		line.fill({ text: undefined, character_ref: undefined });
+
+		expect(line.getDirty()).toEqual(afterAbsent);
+	});
+
+	test('a partly-undefined patch applies only what was supplied', async () => {
+		await freshDatabase();
+
+		const line = await Line.create({
+			ref: 'intro/a',
+			passage_ref: 'intro',
+			kind: 'say',
+			text: 'hello',
+			character_ref: 'ann',
+		});
+
+		line.fill({ text: 'goodbye', character_ref: undefined });
+		await line.save();
+
+		const reloaded = (await Line.find('intro/a'))!;
+		expect(reloaded.text).toBe('goodbye');
+		expect(reloaded.character_ref).toBe('ann');
+	});
+
+	test('create() skips undefined rather than inserting it', async () => {
+		await freshDatabase();
+
+		await Line.create({
+			ref: 'intro/a',
+			passage_ref: 'intro',
+			kind: 'say',
+			text: undefined,
+			character_ref: null,
+		});
+
+		const found = (await Line.find('intro/a'))!;
+		expect(found.character_ref).toBeNull();
+		expect(found.text).toBeNull();
+	});
+
+	test('query().update() applies the same rule', async () => {
+		await freshDatabase();
+
+		await Line.create({
+			ref: 'intro/a',
+			passage_ref: 'intro',
+			kind: 'say',
+			text: 'hello',
+			character_ref: 'ann',
+		});
+
+		await Line.query()
+			.where('ref', 'intro/a')
+			.update({ text: undefined, character_ref: null });
+
+		const found = (await Line.find('intro/a'))!;
+		expect(found.text).toBe('hello');
+		expect(found.character_ref).toBeNull();
+	});
+
+	test('query().update() with nothing to set issues no statement', async () => {
+		const { adapter } = await freshDatabase();
+
+		await Line.create({
+			ref: 'intro/a',
+			passage_ref: 'intro',
+			kind: 'say',
+			text: 'hello',
+		});
+		adapter.clearLog();
+
+		// An empty SET clause is not valid SQL; there is nothing to send.
+		const affected = await Line.query()
+			.where('ref', 'intro/a')
+			.update({ text: undefined });
+
+		expect(affected).toBe(0);
+		expect(adapter.log.filter(e => e.sql.startsWith('UPDATE'))).toEqual([]);
+	});
+});
+
 describe('Model has no writable instance state to corrupt', () => {
 	test('a payload naming `relationships` cannot shadow anything', async () => {
 		await freshDatabase();
