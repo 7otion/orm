@@ -3,9 +3,10 @@
 import type { DatabaseRow } from '../types';
 import BooleanCast from './boolean';
 import DateCast from './date';
+import EmptyToNullCast from './empty-to-null';
 import JsonCast from './json';
 
-export type CastType = 'boolean' | 'json' | 'date';
+export type CastType = 'boolean' | 'json' | 'date' | 'emptyToNull';
 
 export interface ColumnCast<TLogical = any, TStored = any> {
 	fromDatabase(value: TStored, column: string): TLogical;
@@ -19,6 +20,7 @@ export const BUILTIN_CASTS: Record<CastType, ColumnCast> = {
 	boolean: BooleanCast,
 	json: JsonCast,
 	date: DateCast,
+	emptyToNull: EmptyToNullCast,
 };
 
 export class Caster {
@@ -80,4 +82,4 @@ export class Caster {
 	}
 }
 
-export { BooleanCast, DateCast, JsonCast };
+export { BooleanCast, DateCast, EmptyToNullCast, JsonCast };

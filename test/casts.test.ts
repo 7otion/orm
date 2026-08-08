@@ -24,6 +24,7 @@ class Casted extends Model<Casted> {
 			is_active: 'boolean',
 			settings: 'json',
 			due_at: 'date',
+			nickname: 'emptyToNull',
 		} as const,
 	};
 
@@ -31,6 +32,7 @@ class Casted extends Model<Casted> {
 	is_active!: boolean;
 	settings!: { theme: string; level: number } | null;
 	due_at!: Date | null;
+	nickname!: string | null;
 	plain_count!: number;
 }
 
@@ -42,6 +44,7 @@ class Uncast extends Model<Uncast> {
 	is_active!: number;
 	settings!: string | null;
 	due_at!: number | null;
+	nickname!: string | null;
 	plain_count!: number;
 }
 
@@ -339,6 +342,87 @@ describe('date cast', () => {
 		expect(affected).toBe(1);
 		expect((await Uncast.find('a'))!.due_at).toBe(DUE.getTime() / 1000);
 		expect((await Casted.find('a'))!.due_at!.getTime()).toBe(DUE.getTime());
+	});
+});
+
+describe('emptyToNull cast', () => {
+	test('an empty string is stored and read back as null', async () => {
+		const { adapter } = await freshDatabase();
+
+		await Casted.create({
+			ref: 'a',
+			is_active: false,
+			settings: null,
+			nickname: '',
+		});
+
+		expect((await Casted.find('a'))!.nickname).toBeNull();
+
+		const raw = adapter.db.query(`SELECT nickname FROM casted`).get() as {
+			nickname: unknown;
+		};
+		expect(raw.nickname).toBeNull();
+	});
+
+	test('a non-empty string is left alone', async () => {
+		await freshDatabase();
+
+		await Casted.create({
+			ref: 'a',
+			is_active: false,
+			settings: null,
+			nickname: 'Bud',
+		});
+
+		expect((await Casted.find('a'))!.nickname).toBe('Bud');
+	});
+
+	test('null is left alone, not passed through the cast', async () => {
+		await freshDatabase();
+
+		await Casted.create({
+			ref: 'a',
+			is_active: false,
+			settings: null,
+			nickname: null,
+		});
+
+		expect((await Casted.find('a'))!.nickname).toBeNull();
+	});
+
+	test('query().update() converts an empty string to null too', async () => {
+		await freshDatabase();
+
+		await Casted.create({
+			ref: 'a',
+			is_active: false,
+			settings: null,
+			nickname: 'Bud',
+		});
+
+		const affected = await Casted.query()
+			.where('ref', 'a')
+			.update({ nickname: '' });
+
+		expect(affected).toBe(1);
+		expect((await Casted.find('a'))!.nickname).toBeNull();
+	});
+
+	test('fill() converts an empty string on an existing model', async () => {
+		await freshDatabase();
+
+		await Casted.create({
+			ref: 'a',
+			is_active: false,
+			settings: null,
+			nickname: 'Bud',
+		});
+
+		const found = (await Casted.find('a'))!;
+		found.fill({ nickname: '' });
+		await found.save();
+
+		expect((await Casted.find('a'))!.nickname).toBeNull();
 	});
 });
 

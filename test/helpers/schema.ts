@@ -211,6 +211,7 @@ CREATE TABLE casted (
 	is_active   INTEGER NOT NULL DEFAULT 0,
 	settings    TEXT,
 	due_at      INTEGER,
+	nickname    TEXT,
 	plain_count INTEGER NOT NULL DEFAULT 0
 );
 `;

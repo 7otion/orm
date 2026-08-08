@@ -2,8 +2,9 @@
 import type { DatabaseRow } from '../types';
 import BooleanCast from './boolean';
 import DateCast from './date';
+import EmptyToNullCast from './empty-to-null';
 import JsonCast from './json';
-export type CastType = 'boolean' | 'json' | 'date';
+export type CastType = 'boolean' | 'json' | 'date' | 'emptyToNull';
 export interface ColumnCast<TLogical = any, TStored = any> {
     fromDatabase(value: TStored, column: string): TLogical;
     toDatabase(value: TLogical, column: string): TStored;
@@ -30,5 +31,5 @@ export declare class Caster {
      */
     changed(column: string, current: unknown, original: unknown): boolean;
 }
-export { BooleanCast, DateCast, JsonCast };
+export { BooleanCast, DateCast, EmptyToNullCast, JsonCast };
 //# sourceMappingURL=index.d.ts.map

@@ -35,6 +35,7 @@ export {
 	BooleanCast,
 	JsonCast,
 	DateCast,
+	EmptyToNullCast,
 	type CastType,
 	type ColumnCast,
 } from './casts';
