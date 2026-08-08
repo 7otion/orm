@@ -20,7 +20,5 @@ export interface SqlDialect {
      */
     compileUpdateQuery(query: QueryStructure, data: Record<string, QueryValue>): CompiledQuery;
     compileCount(query: QueryStructure): CompiledQuery;
-    /** Value written to timestamp columns; format is dialect-specific. */
-    getCurrentTimestamp(): number | string;
 }
 //# sourceMappingURL=dialect.d.ts.map

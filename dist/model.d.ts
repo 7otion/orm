@@ -9,9 +9,11 @@ import { MorphMany, type MorphManyConfig } from './relationships/morphMany';
 import { RecordPersistenceMixin } from './mixins/record-persistence.mixin';
 import { ChangeStateMixin } from './mixins/change-state.mixin';
 import { RelationshipLoaderMixin } from './mixins/relationship-loader.mixin';
-import type { ModelConfig, QueryValue, TimestampConfig } from './types';
+import type { ModelConfig, QueryValue } from './types';
 import type { AnyRelations } from './relation-paths';
 import type { Patch } from './columns';
+import { Caster } from './casts';
+import { Timestamps } from './timestamps';
 export interface ModelConstructor<TModel extends Model<TModel>> {
     new (): TModel;
     config: ModelConfig;
@@ -32,6 +34,8 @@ export interface ModelStatic<TModel extends Model<TModel>> {
     new (): TModel;
     readonly name: string;
     config: ModelConfig;
+    readonly casts: Caster;
+    readonly timestamps: Timestamps;
     getTableName(): string;
 }
 /**
@@ -52,6 +56,15 @@ export declare abstract class Model<T extends Model<T>> {
     protected static defineRelationships(): Record<string, any>;
     static get relationships(): Record<string, any>;
     static config: ModelConfig;
+    private static _castsCache;
+    private static _timestampsCache;
+    /** The model's timestamp columns, resolved once per class. */
+    static get timestamps(): Timestamps;
+    /**
+     * The model's casts, resolved once per class. Timestamp columns are folded
+     * in as `date`.
+     */
+    static get casts(): Caster;
     /**
      * @internal Phantom nominal marker. `declare` emits nothing, so no instance
      * ever carries it at runtime.
@@ -72,10 +85,10 @@ export declare abstract class Model<T extends Model<T>> {
     /** @internal Config with defaults applied. Public for the mixins' benefit. */
     getConfig(): ModelConfig;
     private deriveTableName;
-    /** @internal Resolved timestamp column names, or null when disabled. */
-    getTimestampConfig(): TimestampConfig | null;
-    get createdAt(): Date | null;
-    get updatedAt(): Date | null;
+    /** @internal Public for the mixins' benefit. */
+    getTimestamps(): Timestamps;
+    /** @internal Public for the mixins' benefit. */
+    getCaster(): Caster;
     static getTableName(): string;
     static generateSlug(string: string): string;
     /**

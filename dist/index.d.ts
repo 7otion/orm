@@ -15,6 +15,7 @@ export type { DatabaseAdapter } from './adapter';
 export type { SqlDialect } from './dialect';
 export { QueryBuilder } from './query-builder';
 export type { DatabaseRow, QueryValue, WhereValue, WhereOperator, OrderDirection, WhereCondition, OrderByClause, QueryStructure, JoinClause, CompiledQuery, TimestampConfig, ModelConfig, } from './types';
+export { BooleanCast, JsonCast, DateCast, type CastType, type ColumnCast, } from './casts';
 export { SQLiteDialect } from './plugins/dialects/sqlite';
 export { TauriAdapter, type TauriAdapterConfig, } from './plugins/adapters/tauri';
 //# sourceMappingURL=index.d.ts.map

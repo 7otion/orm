@@ -5,7 +5,9 @@
  * merge into `Model`'s interface. Only members crossing a mixin boundary
  * belong here.
  */
-import type { ModelConfig, TimestampConfig } from '../types';
+import type { ModelConfig } from '../types';
+import type { Caster } from '../casts';
+import type { Timestamps } from '../timestamps';
 export declare class ModelState {
     /** @internal Column values, keyed by column name. */
     _attributes: Record<string, any>;
@@ -26,7 +28,9 @@ export interface ModelState {
     /** @internal Provided by Model. */
     getConfig(): ModelConfig;
     /** @internal Provided by Model. */
-    getTimestampConfig(): TimestampConfig | null;
+    getTimestamps(): Timestamps;
+    /** @internal Provided by Model. */
+    getCaster(): Caster;
     /** Provided by ChangeStateMixin. */
     getDirty(): string[];
     /** Provided by RelationshipLoaderMixin. */
