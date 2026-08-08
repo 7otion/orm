@@ -2,6 +2,21 @@ import type { SqlDialect } from '../../dialect';
 import type { CompiledQuery, QueryStructure, QueryValue } from '../../types';
 
 export class SQLiteDialect implements SqlDialect {
+	/**
+	 * SQLite has no boolean type, and a driver handed a raw `true` will not
+	 * necessarily store 0/1 — tauri-plugin-sql, for one, binds it as the JSON
+	 * text `"true"`, which no `= 1` comparison ever matches. Normalising here
+	 * catches every value the builder emits, including `where` operands that
+	 * never passed through a model's casts.
+	 */
+	private compiled(sql: string, bindings: QueryValue[]): CompiledQuery {
+		return {
+			sql,
+			bindings: bindings.map(value =>
+				typeof value === 'boolean' ? (value ? 1 : 0) : value,
+			),
+		};
+	}
 	compileSelect(query: QueryStructure): CompiledQuery {
 		const bindings: QueryValue[] = [];
 		let sql = 'SELECT ';
@@ -79,7 +94,7 @@ export class SQLiteDialect implements SqlDialect {
 			bindings.push(query.offsetValue);
 		}
 
-		return { sql, bindings };
+		return this.compiled(sql, bindings);
 	}
 
 	compileInsert(
@@ -96,7 +111,7 @@ export class SQLiteDialect implements SqlDialect {
 
 		const sql = `INSERT INTO ${table} (${columnList}) VALUES (${placeholders})`;
 
-		return { sql, bindings: values };
+		return this.compiled(sql, values);
 	}
 
 	compileUpdate(
@@ -138,7 +153,7 @@ export class SQLiteDialect implements SqlDialect {
 		const sql = `UPDATE ${table} SET ${setClauses} WHERE ${whereClause}`;
 		const bindings = [...values, ...whereBindings];
 
-		return { sql, bindings };
+		return this.compiled(sql, bindings);
 	}
 
 	compileDelete(
@@ -171,7 +186,7 @@ export class SQLiteDialect implements SqlDialect {
 
 		const sql = `DELETE FROM ${table} WHERE ${whereClause}`;
 
-		return { sql, bindings };
+		return this.compiled(sql, bindings);
 	}
 
 	compileDeleteQuery(query: QueryStructure): CompiledQuery {
@@ -242,7 +257,7 @@ export class SQLiteDialect implements SqlDialect {
 			bindings.push(query.offsetValue);
 		}
 
-		return { sql, bindings };
+		return this.compiled(sql, bindings);
 	}
 
 	compileUpdateQuery(
@@ -293,7 +308,7 @@ export class SQLiteDialect implements SqlDialect {
 			sql += whereClauses.join(' AND ');
 		}
 
-		return { sql, bindings };
+		return this.compiled(sql, bindings);
 	}
 
 	compileCount(query: QueryStructure): CompiledQuery {
@@ -342,12 +357,7 @@ export class SQLiteDialect implements SqlDialect {
 			sql += whereClauses.join(' AND ');
 		}
 
-		return { sql, bindings };
-	}
-
-	/** Unix seconds, matching INTEGER DEFAULT (unixepoch()) columns. */
-	getCurrentTimestamp(): number {
-		return Math.floor(Date.now() / 1000);
+		return this.compiled(sql, bindings);
 	}
 
 	/** Quotes an identifier so reserved words and dots are safe. */

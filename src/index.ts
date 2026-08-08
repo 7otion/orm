@@ -31,6 +31,14 @@ export type {
 	ModelConfig,
 } from './types';
 
+export {
+	BooleanCast,
+	JsonCast,
+	DateCast,
+	type CastType,
+	type ColumnCast,
+} from './casts';
+
 export { SQLiteDialect } from './plugins/dialects/sqlite';
 export {
 	TauriAdapter,

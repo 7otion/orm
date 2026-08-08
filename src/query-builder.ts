@@ -295,9 +295,17 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 			const dialect = orm.getDialect();
 			const adapter = orm.getAdapter();
 
+			const timestamps = this.modelClass.timestamps;
+			const stamped = timestamps.strip(
+				data as Record<string, QueryValue>,
+			);
+			if (timestamps.columns) {
+				stamped[timestamps.columns.updated_at] = timestamps.now();
+			}
+
 			const compiled = dialect.compileUpdateQuery(
 				this.query,
-				data as Record<string, QueryValue>,
+				this.modelClass.casts.toDatabaseValues(stamped),
 			);
 
 			const affected = await adapter.execute(
@@ -311,10 +319,14 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 
 	private hydrate(row: DatabaseRow): T {
 		const model = new this.modelClass();
+		const caster = this.modelClass.casts;
+
+		// Cast once and share, so `_original` matches and nothing reads dirty.
+		const attributes = caster.fromDatabaseRow(row);
 
 		// Set directly, so the model is not marked dirty.
-		model._attributes = { ...row };
-		model._original = { ...row };
+		model._attributes = { ...attributes };
+		model._original = caster.snapshot(attributes);
 		model._exists = true;
 
 		return model;

@@ -1,7 +1,7 @@
 /** save() / delete() for Model instances. */
 
 import { ORM } from '../orm';
-import type { QueryValue } from '../types';
+import type { DatabaseRow, QueryValue } from '../types';
 
 import { ModelState } from './model-state.mixin';
 
@@ -40,17 +40,17 @@ export class RecordPersistenceMixin extends ModelState {
 			const dialect = orm.getDialect();
 			const adapter = orm.getAdapter();
 			const config = this.getConfig();
-			const timestampConfig = this.getTimestampConfig();
+			const timestamps = this.getTimestamps();
 
-			if (timestampConfig) {
-				const now = dialect.getCurrentTimestamp();
-				this._attributes[timestampConfig.created_at] = now;
-				this._attributes[timestampConfig.updated_at] = now;
+			if (timestamps.columns) {
+				const now = timestamps.now();
+				this._attributes[timestamps.columns.created_at] = now;
+				this._attributes[timestamps.columns.updated_at] = now;
 			}
 
 			const compiled = dialect.compileInsert(
 				config.table!,
-				this._attributes,
+				this.getCaster().toDatabaseValues(this._attributes),
 			);
 
 			const insertedId = await adapter.insert(
@@ -68,7 +68,7 @@ export class RecordPersistenceMixin extends ModelState {
 				}
 			}
 			this._exists = true;
-			this._original = { ...this._attributes };
+			this._original = this.getCaster().snapshot(this._attributes);
 
 			return this;
 		});
@@ -87,7 +87,7 @@ export class RecordPersistenceMixin extends ModelState {
 			const dialect = orm.getDialect();
 			const adapter = orm.getAdapter();
 			const config = this.getConfig();
-			const timestampConfig = this.getTimestampConfig();
+			const timestamps = this.getTimestamps();
 
 			const dirtyFields = this.getDirty();
 
@@ -95,15 +95,23 @@ export class RecordPersistenceMixin extends ModelState {
 				return [] as string[];
 			}
 
-			const data: Record<string, QueryValue> = {};
+			// Excluded even when dirty: only a direct `_attributes` write can
+			// have made one dirty, and that must not reach the database.
+			const data: DatabaseRow = {};
 			for (const field of dirtyFields) {
+				if (timestamps.owns(field)) continue;
 				data[field] = this._attributes[field];
 			}
 
-			if (timestampConfig) {
-				const now = dialect.getCurrentTimestamp();
-				data[timestampConfig.updated_at] = now;
-				this._attributes[timestampConfig.updated_at] = now;
+			if (timestamps.columns) {
+				const now = timestamps.now();
+				data[timestamps.columns.updated_at] = now;
+				this._attributes[timestamps.columns.updated_at] = now;
+				// Set once, at insert; restore whatever the row was loaded with.
+				if (timestamps.columns.created_at in this._original) {
+					this._attributes[timestamps.columns.created_at] =
+						this._original[timestamps.columns.created_at];
+				}
 			}
 
 			// Locate the row by its ORIGINAL key. A reassigned primary key
@@ -125,7 +133,7 @@ export class RecordPersistenceMixin extends ModelState {
 
 			const compiled = dialect.compileUpdate(
 				config.table!,
-				data,
+				this.getCaster().toDatabaseValues(data),
 				primaryKey,
 				id,
 			);
@@ -143,7 +151,7 @@ export class RecordPersistenceMixin extends ModelState {
 				);
 			}
 
-			this._original = { ...this._attributes };
+			this._original = this.getCaster().snapshot(this._attributes);
 
 			const cleared = this.clearAffectedRelationships(dirtyFields);
 

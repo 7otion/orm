@@ -205,4 +205,12 @@ CREATE TABLE notes (
 	target_kind  TEXT,
 	target_id    INTEGER
 );
+
+CREATE TABLE casted (
+	ref         TEXT    PRIMARY KEY,
+	is_active   INTEGER NOT NULL DEFAULT 0,
+	settings    TEXT,
+	due_at      INTEGER,
+	plain_count INTEGER NOT NULL DEFAULT 0
+);
 `;

@@ -12,7 +12,7 @@ import { RecordPersistenceMixin } from './mixins/record-persistence.mixin';
 import { ChangeStateMixin } from './mixins/change-state.mixin';
 import { RelationshipLoaderMixin } from './mixins/relationship-loader.mixin';
 
-import type { ModelConfig, QueryValue, TimestampConfig } from './types';
+import type { ModelConfig, QueryValue } from './types';
 import {
 	assertWritableColumn,
 	dynamicWhere,
@@ -24,6 +24,8 @@ import {
 } from './internal';
 import type { AnyRelations } from './relation-paths';
 import type { Patch } from './columns';
+import { BUILTIN_CASTS, Caster, type ColumnCast, DateCast } from './casts';
+import { Timestamps } from './timestamps';
 
 export interface ModelConstructor<TModel extends Model<TModel>> {
 	new (): TModel;
@@ -46,6 +48,8 @@ export interface ModelStatic<TModel extends Model<TModel>> {
 	new (): TModel;
 	readonly name: string;
 	config: ModelConfig;
+	readonly casts: Caster;
+	readonly timestamps: Timestamps;
 	getTableName(): string;
 }
 
@@ -86,6 +90,45 @@ export abstract class Model<T extends Model<T>> {
 	static config: ModelConfig = {
 		timestamps: true,
 	};
+
+	private static _castsCache = new WeakMap<typeof Model, Caster>();
+	private static _timestampsCache = new WeakMap<typeof Model, Timestamps>();
+
+	/** The model's timestamp columns, resolved once per class. */
+	static get timestamps(): Timestamps {
+		if (!Model._timestampsCache.has(this)) {
+			Model._timestampsCache.set(
+				this,
+				new Timestamps(this.config.timestamps),
+			);
+		}
+		return Model._timestampsCache.get(this)!;
+	}
+
+	/**
+	 * The model's casts, resolved once per class. Timestamp columns are folded
+	 * in as `date`.
+	 */
+	static get casts(): Caster {
+		if (!Model._castsCache.has(this)) {
+			const casts: Record<string, ColumnCast> = {};
+			for (const [column, spec] of Object.entries(
+				this.config.casts ?? {},
+			)) {
+				casts[column] =
+					typeof spec === 'string' ? BUILTIN_CASTS[spec] : spec;
+			}
+
+			const columns = this.timestamps.columns;
+			if (columns) {
+				casts[columns.created_at] ??= DateCast;
+				casts[columns.updated_at] ??= DateCast;
+			}
+
+			Model._castsCache.set(this, new Caster(casts));
+		}
+		return Model._castsCache.get(this)!;
+	}
 
 	/**
 	 * @internal Phantom nominal marker. `declare` emits nothing, so no instance
@@ -206,6 +249,14 @@ export abstract class Model<T extends Model<T>> {
 					return true;
 				}
 
+				if (ctor.timestamps.owns(prop)) {
+					throw new Error(
+						`[orm] ${ctor.name}.${prop} is a timestamp, which the ` +
+							`ORM maintains: it is set on insert and refreshed on ` +
+							`every update. It cannot be assigned.`,
+					);
+				}
+
 				target._attributes[prop] = value;
 				return true;
 			},
@@ -267,36 +318,14 @@ export abstract class Model<T extends Model<T>> {
 		}
 	}
 
-	/** @internal Resolved timestamp column names, or null when disabled. */
-	getTimestampConfig(): TimestampConfig | null {
-		const config = this.getConfig();
-
-		if (!config.timestamps) {
-			return null;
-		}
-
-		if (typeof config.timestamps === 'boolean') {
-			return {
-				created_at: 'created_at',
-				updated_at: 'updated_at',
-			};
-		}
-
-		return config.timestamps;
+	/** @internal Public for the mixins' benefit. */
+	getTimestamps(): Timestamps {
+		return (this.constructor as typeof Model).timestamps;
 	}
 
-	get createdAt(): Date | null {
-		const tsConfig = this.getTimestampConfig();
-		if (!tsConfig) return null;
-		const val = this._attributes[tsConfig.created_at];
-		return val != null ? new Date(Number(val) * 1000) : null;
-	}
-
-	get updatedAt(): Date | null {
-		const tsConfig = this.getTimestampConfig();
-		if (!tsConfig) return null;
-		const val = this._attributes[tsConfig.updated_at];
-		return val != null ? new Date(Number(val) * 1000) : null;
+	/** @internal Public for the mixins' benefit. */
+	getCaster(): Caster {
+		return (this.constructor as typeof Model).casts;
 	}
 
 	static getTableName(): string {
@@ -471,12 +500,16 @@ export abstract class Model<T extends Model<T>> {
 	 * still accepts every column, so set one before filling from user input.
 	 */
 	fill(data: Patch<T>): this {
-		const { fillable, guarded } = (this.constructor as typeof Model).config;
+		const ModelClass = this.constructor as typeof Model;
+		const { fillable, guarded } = ModelClass.config;
+		const timestamps = ModelClass.timestamps;
 
 		for (const [key, value] of Object.entries(
 			data as Record<string, unknown>,
 		)) {
 			if (key.startsWith('_')) continue;
+			// The ORM stamps these itself; a supplied one is always stale.
+			if (timestamps.owns(key)) continue;
 			if (fillable) {
 				if (!fillable.includes(key)) continue;
 			} else if (guarded?.includes(key)) {

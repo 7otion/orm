@@ -8,6 +8,7 @@ nothing in the core is SQLite-specific.
   `with('posts.comments')` is checked against the model's declared relations.
 - **Relationships** — hasOne, hasMany, belongsTo, belongsToMany, morphTo,
   morphMany, with eager loading and nested paths.
+- **Column casts** — `boolean`, `json` and `date` built in, or write your own.
 - **Dirty tracking** — updates write only the columns that changed.
 - **Transactions** — nested calls collapse into the outermost one.
 - **Write queue** — serialises writes for databases that need it.
@@ -74,6 +75,7 @@ than the (never assigned) class field.
 | `table` | derived from class name | `User` → `users`, `BlogPost` → `blog_posts`, `Category` → `categories` |
 | `primaryKey` | `'id'` | a `string[]` declares a composite key |
 | `timestamps` | see below | `true`, or `{ created_at, updated_at }` to rename the columns |
+| `casts` | — | column ⇄ logical value conversion — see [Casts](#casts) |
 | `fillable` | — | allow-list for `create()` / `fill()` |
 | `guarded` | — | deny-list for `create()` / `fill()` |
 
@@ -177,13 +179,115 @@ user.getChanges(); // { name: { old: 'John', new: 'Jane' } }
 
 ### Timestamps
 
-With timestamps enabled, `created_at` / `updated_at` are written as unix
-seconds, and exposed as `Date`:
+With timestamps enabled, `created_at` and `updated_at` are stored as unix
+seconds and read back as `Date` — they are ordinary [`date` cast](#casts)
+columns the ORM populates itself, not a separate mechanism:
 
 ```ts
-user.createdAt;   // Date | null
-user.updatedAt;   // Date | null
+user.created_at;   // Date
+user.updated_at;   // Date
 ```
+
+They belong to the ORM, not the caller. `created_at` is set once at insert,
+`updated_at` is refreshed on every update, and neither is ever taken from
+supplied data. Assigning one throws:
+
+```ts
+user.created_at = new Date();
+// Error: [orm] User.created_at is a timestamp, which the ORM maintains: it is
+// set on insert and refreshed on every update. It cannot be assigned.
+```
+
+`create()`, `fill()` and `query().update()` drop a supplied timestamp silently,
+the same way `guarded` columns are — so round-tripping a whole row back through
+`fill()` still works.
+
+## Casts
+
+SQLite stores no booleans, structured values or dates. `casts` declares a
+column's logical shape once, and the ORM converts in both directions — on
+hydration, on write, and when comparing for dirty tracking:
+
+```ts
+class Task extends Model<Task> {
+  static config = {
+    timestamps: true,
+    casts: {
+      is_done:  'boolean',   // stored 0/1
+      metadata: 'json',      // stored as text
+      due_at:   'date',      // stored as unix seconds
+    } as const,
+  };
+
+  is_done!: boolean;
+  metadata!: { tags: string[] } | null;
+  due_at!: Date | null;
+}
+
+const task = (await Task.find(1))!;
+task.is_done;          // true, not 1
+task.metadata!.tags;   // string[], already parsed
+task.due_at;           // Date
+```
+
+`as const` is required — without it TypeScript widens `'boolean'` to `string`.
+
+Casts apply on every path: hydration, `save()`, `create()`, `fill()` and
+`query().update()`.
+
+### Object values and dirty tracking
+
+`json` and `date` produce objects, so the snapshot compared against is a
+detached copy — an edit in place is still detected:
+
+```ts
+task.metadata!.tags.push('urgent');
+task.isDirty;   // true
+
+task.due_at!.setUTCFullYear(2031);
+task.isDirty;   // true
+```
+
+### Custom casts
+
+Anything implementing `ColumnCast` can go wherever a built-in name goes. The
+built-ins are themselves `ColumnCast` objects, so there is one mechanism rather
+than a separate path for each:
+
+```ts
+import { Model, type ColumnCast } from '@7otion/orm';
+
+class Money {
+  constructor(readonly cents: number) {}
+  get dollars() { return this.cents / 100; }
+}
+
+const MoneyCast: ColumnCast<Money, number> = {
+  fromDatabase: cents => new Money(cents),
+  toDatabase:   money => money.cents,
+  equals:       (a, b) => a.cents === b.cents,     // optional
+  clone:        money => new Money(money.cents),   // optional
+};
+
+class Product extends Model<Product> {
+  static config = { casts: { price: MoneyCast } as const };
+  price!: Money;
+}
+```
+
+| member | required | purpose |
+|---|---|---|
+| `fromDatabase(value, column)` | yes | stored → logical. Never called for `null` / `undefined`. |
+| `toDatabase(value, column)` | yes | logical → stored. Never called for `null` / `undefined`. |
+| `clone(value)` | no | detach the value for the dirty-tracking snapshot. Defaults to `structuredClone`. |
+| `equals(a, b)` | no | value comparison for dirty tracking. Defaults to a structural compare. |
+
+`clone` and `equals` are consulted only for object values — primitives copy and
+compare correctly on their own. Supply `clone` when the logical value is a class
+instance, since `structuredClone` would drop its prototype.
+
+`BooleanCast`, `JsonCast` and `DateCast` are exported if you want to reference
+one directly or wrap it.
 
 ## Relationships
 
@@ -360,7 +464,6 @@ with the package.
 | `compileCount` | `paginate()` |
 | `compileDeleteQuery` | `QueryBuilder.delete()` |
 | `compileUpdateQuery` | `QueryBuilder.update()` |
-| `getCurrentTimestamp` | timestamps |
 
 Dialects generate SQL and never execute it. Bind every value; only identifiers
 belong in the statement text.

@@ -6,7 +6,9 @@
  * belong here.
  */
 
-import type { ModelConfig, TimestampConfig } from '../types';
+import type { ModelConfig } from '../types';
+import type { Caster } from '../casts';
+import type { Timestamps } from '../timestamps';
 
 export class ModelState {
 	/* Initialised by Model's constructor. */
@@ -36,7 +38,10 @@ export interface ModelState {
 	getConfig(): ModelConfig;
 
 	/** @internal Provided by Model. */
-	getTimestampConfig(): TimestampConfig | null;
+	getTimestamps(): Timestamps;
+
+	/** @internal Provided by Model. */
+	getCaster(): Caster;
 
 	/** Provided by ChangeStateMixin. */
 	getDirty(): string[];

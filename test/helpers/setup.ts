@@ -32,8 +32,3 @@ export async function freshDatabase(
 
 	return { adapter, orm: ORM.getInstance() };
 }
-
-/** Unix seconds, matching SQLiteDialect.getCurrentTimestamp(). */
-export function nowSeconds(): number {
-	return Math.floor(Date.now() / 1000);
-}

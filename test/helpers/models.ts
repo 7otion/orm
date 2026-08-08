@@ -116,8 +116,8 @@ export class ProjectFile extends Model<ProjectFile> {
 	extension!: string;
 	ctime!: number;
 	mtime!: number;
-	created_at!: number;
-	updated_at!: number;
+	created_at!: Date;
+	updated_at!: Date;
 
 	get formattedSize(): string {
 		return `${this.size} bytes`;
@@ -139,8 +139,8 @@ export class Asset extends Model<Asset> {
 	file!: ProjectFile;
 	hotspots!: Hotspot[];
 
-	created_at!: number;
-	updated_at!: number;
+	created_at!: Date;
+	updated_at!: Date;
 
 	static readonly relationships = {
 		file: this.belongsTo(ProjectFile, 'file_id', 'id'),
@@ -239,8 +239,8 @@ export class Character extends Model<Character> {
 	assets!: CharacterAsset[];
 	fragments!: Fragment[];
 
-	created_at!: number;
-	updated_at!: number;
+	created_at!: Date;
+	updated_at!: Date;
 
 	static readonly relationships = {
 		tags: this.hasMany(CharacterTag, 'character_ref', 'ref'),
@@ -328,8 +328,8 @@ export class Passage extends Model<Passage> {
 	auto_continue!: number;
 	allow_back!: number;
 
-	created_at!: number;
-	updated_at!: number;
+	created_at!: Date;
+	updated_at!: Date;
 
 	lines!: Line[];
 	choices!: Choice[];
@@ -358,8 +358,8 @@ export class Variable extends Model<Variable> {
 	initial_value!: string | null;
 	description!: string | null;
 
-	created_at!: number;
-	updated_at!: number;
+	created_at!: Date;
+	updated_at!: Date;
 
 	static readonly relationships = {};
 }

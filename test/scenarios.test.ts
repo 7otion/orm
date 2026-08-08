@@ -701,7 +701,7 @@ describe('bulk and composite-key writes', () => {
 		expect(alice.tags.map(t => t.tag)).toEqual(['hero']);
 		expect(alice.assets[0]!.asset.name).toBe('Portrait');
 		expect(alice.fragments).toEqual([]);
-		expect(alice.createdAt).toBeInstanceOf(Date);
+		expect(alice.created_at).toBeInstanceOf(Date);
 	});
 
 	test('a composite-key set can be replaced wholesale', async () => {

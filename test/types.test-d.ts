@@ -264,7 +264,9 @@ export async function _instanceSurfaceIsTyped() {
 
 	expectType<Equal<typeof line.isDirty, boolean>>();
 	expectType<Equal<ReturnType<typeof line.getDirty>, string[]>>();
-	expectType<Equal<typeof line.createdAt, Date | null>>();
+
+	const passage = (await Passage.find('intro'))!;
+	expectType<Equal<typeof passage.created_at, Date>>();
 
 	// Declared columns and relations keep the types the model author wrote.
 	expectType<Equal<typeof line.text, string | null>>();

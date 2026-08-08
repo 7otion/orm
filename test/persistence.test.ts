@@ -12,7 +12,7 @@ import {
 	User,
 	Variable,
 } from './helpers/models';
-import { freshDatabase, nowSeconds } from './helpers/setup';
+import { freshDatabase } from './helpers/setup';
 
 async function seedPassage(ref = 'intro'): Promise<Passage> {
 	return Passage.create({
@@ -198,12 +198,17 @@ describe('delete', () => {
 describe('timestamps', () => {
 	test('insert stamps both created_at and updated_at', async () => {
 		await freshDatabase();
-		const before = nowSeconds();
+		// Floored to match the column's stored precision: seconds, not ms.
+		const before = new Date(Math.floor(Date.now() / 1000) * 1000);
 
 		const passage = await seedPassage();
 
-		expect(passage.created_at).toBeGreaterThanOrEqual(before);
-		expect(passage.updated_at).toBeGreaterThanOrEqual(before);
+		expect(passage.created_at.getTime()).toBeGreaterThanOrEqual(
+			before.getTime(),
+		);
+		expect(passage.updated_at.getTime()).toBeGreaterThanOrEqual(
+			before.getTime(),
+		);
 	});
 
 	test('update bumps updated_at but leaves created_at alone', async () => {
@@ -214,13 +219,15 @@ describe('timestamps', () => {
 		// Force a distinguishable second boundary.
 		(
 			passage as unknown as { _attributes: Record<string, unknown> }
-		)._attributes.updated_at = createdAt - 100;
+		)._attributes.updated_at = new Date(createdAt.getTime() - 100_000);
 
 		passage.title = 'Prologue';
 		await passage.save();
 
-		expect(passage.created_at).toBe(createdAt);
-		expect(passage.updated_at).toBeGreaterThan(createdAt - 100);
+		expect(passage.created_at.getTime()).toBe(createdAt.getTime());
+		expect(passage.updated_at.getTime()).toBeGreaterThan(
+			createdAt.getTime() - 100_000,
+		);
 	});
 
 	test('timestamps: false writes no timestamp columns', async () => {
@@ -239,28 +246,18 @@ describe('timestamps', () => {
 		expect(insert.sql).not.toContain('updated_at');
 	});
 
-	test('createdAt/updatedAt getters convert unix seconds to Date', async () => {
-		await freshDatabase();
+	test('created_at/updated_at round-trip as Date, stored as unix seconds', async () => {
+		const { adapter } = await freshDatabase();
 		const passage = await seedPassage();
 
-		expect(passage.createdAt).toBeInstanceOf(Date);
-		expect(passage.updatedAt).toBeInstanceOf(Date);
-		expect(passage.createdAt!.getTime()).toBe(passage.created_at * 1000);
-	});
+		expect(passage.created_at).toBeInstanceOf(Date);
+		expect(passage.updated_at).toBeInstanceOf(Date);
 
-	test('createdAt is null when the model has timestamps disabled', async () => {
-		await freshDatabase();
-
-		const line = await Line.create({
-			ref: 'intro/say-hi',
-			passage_ref: 'intro',
-			sort: 10,
-			kind: 'say',
-			return_to_caller: 0,
-		});
-
-		expect(line.createdAt).toBeNull();
-		expect(line.updatedAt).toBeNull();
+		const raw = adapter.db
+			.query(`SELECT created_at, typeof(created_at) AS ty FROM passages`)
+			.get() as { created_at: number; ty: string };
+		expect(raw.ty).toBe('integer');
+		expect(passage.created_at.getTime()).toBe(raw.created_at * 1000);
 	});
 
 	test('a custom timestamp column config is honoured', async () => {
@@ -276,6 +273,214 @@ describe('timestamps', () => {
 		const insert = adapter.log.find(e => e.kind === 'insert')!;
 		expect(insert.sql).toContain('created_at');
 		expect(insert.sql).toContain('updated_at');
+	});
+});
+
+/**
+ * A timestamp column is a `date` column that the ORM populates itself, so the
+ * casting half is covered by the `date` suite. What is specific to timestamps
+ * is that the ORM owns the value — a caller-supplied one is meant to be
+ * discarded.
+ *
+ * No application code sets these: `created_at` is when the row was written and
+ * `updated_at` is when it last changed, so both are facts about the write, not
+ * data the caller supplies. Every write path enforces that — insert, instance
+ * update, and bulk update alike.
+ */
+describe('timestamps are owned by the ORM, not the caller', () => {
+	const PAST = new Date('2001-01-01T00:00:00.000Z');
+
+	const seedWithStamps = () =>
+		Passage.create({
+			ref: 'intro',
+			title: 'Intro',
+			status: 'draft',
+			sort: 0,
+			auto_continue: 0,
+			allow_back: 0,
+			created_at: PAST,
+			updated_at: PAST,
+		} as never);
+
+	test('insert discards caller-supplied created_at and updated_at', async () => {
+		await freshDatabase();
+		const before = new Date(Math.floor(Date.now() / 1000) * 1000);
+
+		const passage = await seedWithStamps();
+
+		expect(passage.created_at.getTime()).toBeGreaterThanOrEqual(
+			before.getTime(),
+		);
+		expect(passage.updated_at.getTime()).toBeGreaterThanOrEqual(
+			before.getTime(),
+		);
+		expect(passage.created_at.getTime()).not.toBe(PAST.getTime());
+	});
+
+	test('the discarded value never reaches the database either', async () => {
+		const { adapter } = await freshDatabase();
+
+		await seedWithStamps();
+
+		const raw = adapter.db
+			.query(`SELECT created_at FROM passages`)
+			.get() as { created_at: number };
+		expect(raw.created_at).not.toBe(PAST.getTime() / 1000);
+	});
+
+	test('assigning a timestamp is refused, and says why', async () => {
+		await freshDatabase();
+		const passage = await seedPassage();
+
+		expect(() => {
+			(passage as unknown as { updated_at: Date }).updated_at = PAST;
+		}).toThrow(/updated_at is a timestamp, which the ORM maintains/);
+
+		expect(() => {
+			(passage as unknown as { created_at: Date }).created_at = PAST;
+		}).toThrow(/created_at is a timestamp, which the ORM maintains/);
+	});
+
+	test('fill() drops a supplied timestamp instead of throwing', async () => {
+		await freshDatabase();
+		const passage = await seedPassage();
+		const createdAt = passage.created_at.getTime();
+
+		// Dropped, like a `guarded` column, so round-tripping a whole row back
+		// through fill() keeps working.
+		passage.fill({ title: 'Prologue', created_at: PAST } as never);
+
+		expect(passage.title).toBe('Prologue');
+		expect(passage.created_at.getTime()).toBe(createdAt);
+	});
+
+	test('created_at cannot be changed once the row exists', async () => {
+		await freshDatabase();
+		const passage = await seedPassage();
+		const createdAt = passage.created_at.getTime();
+
+		// The only way past the proxy is a direct `_attributes` write, which
+		// update() must still refuse to send.
+		(
+			passage as unknown as { _attributes: Record<string, unknown> }
+		)._attributes.created_at = PAST;
+		passage.title = 'Prologue';
+		await passage.save();
+
+		expect((await Passage.find('intro'))!.created_at.getTime()).toBe(
+			createdAt,
+		);
+		// …and the in-memory row is put back in step with the database.
+		expect(passage.created_at.getTime()).toBe(createdAt);
+	});
+
+	test('an instance update refreshes updated_at', async () => {
+		await freshDatabase();
+		const passage = await seedPassage();
+
+		// Back-date through `_attributes` so a fresh stamp is distinguishable.
+		const stale = new Date(passage.updated_at.getTime() - 100_000);
+		(
+			passage as unknown as { _attributes: Record<string, unknown> }
+		)._attributes.updated_at = stale;
+
+		passage.title = 'Prologue';
+		await passage.save();
+
+		expect(
+			(await Passage.find('intro'))!.updated_at.getTime(),
+		).toBeGreaterThan(stale.getTime());
+	});
+
+	test('a bulk update refreshes updated_at', async () => {
+		const { adapter } = await freshDatabase();
+		await seedPassage();
+
+		// Back-date the stored row, not just a local variable: otherwise the
+		// insert stamp already satisfies "later than stale" and the assertion
+		// holds even when the bulk path stamps nothing.
+		const stale = Math.floor(Date.now() / 1000) - 100_000;
+		adapter.db.run(`UPDATE passages SET updated_at = ${stale}`);
+		expect((await Passage.find('intro'))!.updated_at.getTime()).toBe(
+			stale * 1000,
+		);
+
+		await Passage.query()
+			.where('ref', 'intro')
+			.update({ title: 'Prologue' } as never);
+
+		const after = (await Passage.find('intro'))!;
+		expect(after.title).toBe('Prologue');
+		expect(after.updated_at.getTime()).toBeGreaterThan(stale * 1000);
+	});
+
+	test('a bulk update ignores a caller-supplied updated_at', async () => {
+		await freshDatabase();
+		await seedPassage();
+
+		await Passage.query()
+			.where('ref', 'intro')
+			.update({ title: 'Prologue', updated_at: PAST } as never);
+
+		expect((await Passage.find('intro'))!.updated_at.getTime()).not.toBe(
+			PAST.getTime(),
+		);
+	});
+
+	test('a bulk update cannot rewrite created_at', async () => {
+		await freshDatabase();
+		const passage = await seedPassage();
+		const createdAt = passage.created_at.getTime();
+
+		await Passage.query()
+			.where('ref', 'intro')
+			.update({ created_at: PAST } as never);
+
+		expect((await Passage.find('intro'))!.created_at.getTime()).toBe(
+			createdAt,
+		);
+	});
+
+	test('timestamps use the same date cast as any other date column', async () => {
+		const { adapter } = await freshDatabase();
+		const passage = await seedPassage();
+
+		// `Model.casts` folds the timestamp columns in as `date`, so they are
+		// seconds on disk and a Date in memory — one conversion path, not a
+		// parallel one.
+		expect(passage.created_at).toBeInstanceOf(Date);
+
+		const raw = adapter.db
+			.query(`SELECT typeof(created_at) AS ty FROM passages`)
+			.get() as { ty: string };
+		expect(raw.ty).toBe('integer');
+	});
+
+	test('a freshly stamped model is not dirty', async () => {
+		await freshDatabase();
+
+		// The stamp is written into `_attributes` during insert, then snapshot
+		// into `_original`. A Date detached by the snapshot must compare by
+		// value, or every newly created model would read dirty.
+		const passage = await seedPassage();
+		expect(passage.isDirty).toBe(false);
+		expect(passage.getDirty()).toEqual([]);
+	});
+
+	test('the in-memory stamp matches the persisted one exactly', async () => {
+		await freshDatabase();
+
+		// `Timestamps.now()` floors to seconds precisely so these agree; a
+		// plain `new Date()` would keep milliseconds the column cannot store.
+		const passage = await seedPassage();
+		const reloaded = (await Passage.find('intro'))!;
+
+		expect(passage.created_at.getTime()).toBe(
+			reloaded.created_at.getTime(),
+		);
+		expect(passage.updated_at.getTime()).toBe(
+			reloaded.updated_at.getTime(),
+		);
 	});
 });
 

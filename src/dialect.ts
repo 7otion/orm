@@ -43,7 +43,4 @@ export interface SqlDialect {
 	): CompiledQuery;
 
 	compileCount(query: QueryStructure): CompiledQuery;
-
-	/** Value written to timestamp columns; format is dialect-specific. */
-	getCurrentTimestamp(): number | string;
 }

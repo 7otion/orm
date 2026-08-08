@@ -8,10 +8,13 @@ export class ChangeStateMixin extends ModelState {
 	}
 
 	getDirty(): string[] {
+		const caster = this.getCaster();
 		const dirty: string[] = [];
 
 		for (const key in this._attributes) {
-			if (this._attributes[key] !== this._original[key]) {
+			if (
+				caster.changed(key, this._attributes[key], this._original[key])
+			) {
 				dirty.push(key);
 			}
 		}

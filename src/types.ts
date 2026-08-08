@@ -1,3 +1,5 @@
+import type { CastType, ColumnCast } from './casts';
+
 /** A row exactly as an adapter returned it. */
 export type DatabaseRow = Record<string, any>;
 
@@ -79,4 +81,9 @@ export interface ModelConfig {
 	fillable?: string[];
 	/** Columns bulk assignment may never set. Ignored when `fillable` is set. */
 	guarded?: string[];
+	/**
+	 * Columns whose stored shape differs from their logical one. A string
+	 * selects a built-in cast; a `ColumnCast` is a custom one.
+	 */
+	casts?: Record<string, CastType | ColumnCast>;
 }
