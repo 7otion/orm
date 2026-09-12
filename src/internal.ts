@@ -26,6 +26,19 @@ export function assertIdentifier(value: string, kind: string): string {
 	return value;
 }
 
+/** `BlogPost` -> `blog_post`. */
+export function snakeCase(name: string): string {
+	return name
+		.replace(/([A-Z])/g, '_$1')
+		.toLowerCase()
+		.replace(/^_/, '');
+}
+
+/** The `<name>_id` a relation infers from a class name, dropping a `Model` suffix. */
+export function foreignKeyFor(className: string): string {
+	return `${snakeCase(className.replace(/Model$/, ''))}_id`;
+}
+
 /** Operators are interpolated into SQL, not bound, so only these are allowed. */
 const OPERATORS = new Set([
 	'=',

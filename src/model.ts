@@ -18,6 +18,7 @@ import type { ModelConfig, QueryValue } from './types';
 import {
 	assertIdentifier,
 	assertWritableColumn,
+	snakeCase,
 	dynamicWhere,
 	findDeclaration,
 	findRelationship,
@@ -328,14 +329,12 @@ export abstract class Model<T extends Model<T>> {
 	}
 
 	private static deriveTableName(): string {
-		const snakeCase = (this.name || 'Model')
-			.replace(/([A-Z])/g, '_$1')
-			.toLowerCase()
-			.replace(/^_/, '');
+		// A `Model` suffix is kept here, unlike in foreign-key inference.
+		const name = snakeCase(this.name || 'Model');
 
-		if (snakeCase.endsWith('y')) return snakeCase.slice(0, -1) + 'ies';
-		if (snakeCase.endsWith('s')) return snakeCase + 'es';
-		return snakeCase + 's';
+		if (name.endsWith('y')) return name.slice(0, -1) + 'ies';
+		if (name.endsWith('s')) return name + 'es';
+		return name + 's';
 	}
 
 	static generateSlug(string: string): string {

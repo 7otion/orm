@@ -18,9 +18,7 @@ export interface MorphToConfig<T extends Model<T>> {
 
 export class MorphTo<T extends Model<T>> implements LoadableRelation {
 	constructor(
-		// @ts-ignore
-		private parent: any,
-		// @ts-ignore
+		private parent: unknown,
 		private config: MorphToConfig<T>,
 	) {}
 
@@ -29,15 +27,21 @@ export class MorphTo<T extends Model<T>> implements LoadableRelation {
 	}
 
 	async get(parent?: Model<any>): Promise<T | null> {
-		const instance = parent || this.parent;
-		const discriminatorValue = instance[this.config.discriminatorField];
-		const foreignKeyValue = instance[this.config.foreignKeyField];
+		const instance = (parent ?? this.parent) as Model<any>;
+		const discriminatorValue = getAttribute(
+			instance,
+			this.config.discriminatorField,
+		);
+		const foreignKeyValue = getAttribute(
+			instance,
+			this.config.foreignKeyField,
+		);
 
-		if (!discriminatorValue || foreignKeyValue === null) {
+		if (!discriminatorValue || foreignKeyValue == null) {
 			return null;
 		}
 
-		const RelatedModel = this.config.morphMap[discriminatorValue];
+		const RelatedModel = this.config.morphMap[String(discriminatorValue)];
 		if (!RelatedModel) {
 			console.warn(
 				`No model mapped for discriminator value: ${discriminatorValue}`,

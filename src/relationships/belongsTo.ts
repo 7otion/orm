@@ -5,6 +5,7 @@ import { QueryBuilder } from '../query-builder';
 import type { Model } from '../model';
 import {
 	dynamicWhere,
+	foreignKeyFor,
 	getAttribute,
 	isRelationLoaded,
 	setRelation,
@@ -14,28 +15,9 @@ export class BelongsTo<
 	T extends Model<T>,
 	TClass = unknown,
 > extends Relationship<T, TClass> {
-	constructor(
-		parent: any,
-		related: any,
-		foreignKey?: string,
-		localKey?: string,
-	) {
-		super(parent, related, foreignKey, localKey);
-
-		// The key is on the owner here, so inference differs from the base.
-		if (!foreignKey) {
-			const relatedName = this.related.name
-				.replace(/Model$/, '')
-				.replace(/([A-Z])/g, '_$1')
-				.toLowerCase()
-				.replace(/^_/, '');
-			this.foreignKey = `${relatedName}_id`;
-		}
-
-		if (!localKey) {
-			const pk = this.related.config?.primaryKey || 'id';
-			this.localKey = Array.isArray(pk) ? pk[0]! : pk;
-		}
+	/** The key is on the owner here, so it names the related class, not the parent. */
+	protected override defaultForeignKey(): string {
+		return foreignKeyFor(this.related.name);
 	}
 
 	getOwnerFields(): string[] {

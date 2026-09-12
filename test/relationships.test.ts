@@ -747,3 +747,60 @@ describe('CharacterTag composite children', () => {
 		]);
 	});
 });
+
+describe('belongsToMany key inference', () => {
+	test('lazy and eager read the same owner column', async () => {
+		const { adapter } = await freshDatabase();
+		adapter.db.exec(
+			`INSERT INTO characters (ref, name, is_player, pron_plural)
+			 VALUES ('alice', 'Alice', 0, 0)`,
+		);
+
+		// The owner's key is `ref`; the related model's is `id`.
+		class Tag extends Model<Tag> {
+			static config = { table: 'roles', timestamps: false };
+			id!: number;
+			name!: string;
+			static readonly relationships = {};
+		}
+		class Owner extends Model<Owner> {
+			static config = {
+				table: 'characters',
+				primaryKey: 'ref',
+				timestamps: false,
+			};
+			ref!: string;
+			name!: string;
+			tags!: Tag[];
+			static readonly relationships = {
+				tags: this.belongsToMany(
+					Tag,
+					'character_assets',
+					'character_ref',
+					'asset_ref',
+				),
+			};
+		}
+
+		const [owner] = await Owner.query().get();
+		const relation = Owner.relationships['tags'] as never as {
+			get(parent: unknown): Promise<unknown>;
+			eagerLoadFor(models: unknown[], name: string): Promise<void>;
+		};
+
+		const pivotBindings = async (run: () => Promise<unknown>) => {
+			adapter.clearLog();
+			await run();
+			return adapter.log.find(entry =>
+				entry.sql.includes('character_assets'),
+			)?.params;
+		};
+
+		expect(
+			await pivotBindings(() => relation.eagerLoadFor([owner], 'tags')),
+		).toEqual(['alice']);
+		expect(await pivotBindings(() => relation.get(owner))).toEqual([
+			'alice',
+		]);
+	});
+});

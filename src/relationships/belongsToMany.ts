@@ -7,6 +7,7 @@ import type { DatabaseRow } from '../types';
 import {
 	assertIdentifier,
 	dynamicWhere,
+	foreignKeyFor,
 	getAttribute,
 	isRelationLoaded,
 	setRelation,
@@ -36,23 +37,13 @@ export class BelongsToMany<
 		this.pivotTable = assertIdentifier(pivotTable, 'pivot table');
 
 		if (!foreignPivotKey) {
-			const parentName = this.parentConstructor.name
-				.replace(/Model$/, '')
-				.replace(/([A-Z])/g, '_$1')
-				.toLowerCase()
-				.replace(/^_/, '');
-			this.foreignPivotKey = `${parentName}_id`;
+			this.foreignPivotKey = foreignKeyFor(this.parentConstructor.name);
 		} else {
 			this.foreignPivotKey = foreignPivotKey;
 		}
 
 		if (!relatedPivotKey) {
-			const relatedName = related.name
-				.replace(/Model$/, '')
-				.replace(/([A-Z])/g, '_$1')
-				.toLowerCase()
-				.replace(/^_/, '');
-			this.relatedPivotKey = `${relatedName}_id`;
+			this.relatedPivotKey = foreignKeyFor(related.name);
 		} else {
 			this.relatedPivotKey = relatedPivotKey;
 		}
@@ -72,7 +63,7 @@ export class BelongsToMany<
 	/** Joins through the pivot table. */
 	async get(parent: Model<any>): Promise<T[]> {
 		const relatedTable = this.related.getTableName();
-		const parentKeyValue = this.getParentKeyValue(parent);
+		const parentKeyValue = getAttribute(parent, this.parentKey);
 
 		const query = new QueryBuilder(this.related, relatedTable);
 		query.innerJoin(

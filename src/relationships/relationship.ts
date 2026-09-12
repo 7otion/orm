@@ -3,7 +3,7 @@
  * and `eagerLoadFor()` for a batch, avoiding N+1 queries.
  */
 
-import { getAttribute } from '../internal';
+import { foreignKeyFor, getAttribute } from '../internal';
 import type { Model, ModelClassRef, ModelStatic } from '../model';
 
 // A thunk defers resolution, breaking circular imports between model files.
@@ -78,13 +78,7 @@ export abstract class Relationship<
 					'[orm] Provide an explicit foreignKey when using a thunk for the related model.',
 				);
 			}
-			const parentClassName = this.parentConstructor.name;
-			const snakeCase = parentClassName
-				.replace(/Model$/, '')
-				.replace(/([A-Z])/g, '_$1')
-				.toLowerCase()
-				.replace(/^_/, '');
-			this.foreignKey = `${snakeCase}_id`;
+			this.foreignKey = this.defaultForeignKey();
 		} else {
 			this.foreignKey = foreignKey;
 		}
@@ -101,6 +95,11 @@ export abstract class Relationship<
 		} else {
 			this.localKey = localKey;
 		}
+	}
+
+	/** Which class names the foreign key; the owner, unless a subclass says otherwise. */
+	protected defaultForeignKey(): string {
+		return foreignKeyFor(this.parentConstructor.name);
 	}
 
 	protected getParentKeyValue(parent: Model<any>): any {
