@@ -77,52 +77,28 @@ export class ORM {
 
 	/**
 	 * Runs the callback in a transaction, committing on success and rolling back
-	 * on throw. Writes inside it must carry the `Transaction` it is passed.
-	 * Nesting joins the outermost, which is the only one that commits.
+	 * on throw. Given an open transaction's handle, it runs inside that one instead.
 	 */
 	async transaction<T>(
 		callback: (tx: Transaction) => Promise<T>,
+		tx?: Transaction,
+		label: string = 'transaction()',
 	): Promise<T> {
-		if (this.active) {
-			return ormTransactionBody(callback, this.active);
+		if (tx) {
+			return this.queueWrite(
+				() => ormTransactionBody(callback, tx),
+				tx,
+				label,
+			);
+		}
+
+		if (this.active && calledFromTransactionBody()) {
+			throw this.missingHandle(label);
 		}
 
 		// Queued like any write, so it runs after whatever is already pending
 		// and everything issued later runs after it.
-		return this.enqueue(async () => {
-			const tx = new Transaction();
-
-			try {
-				return await this.atomic(() => {
-					this.active = tx;
-					return ormTransactionBody(callback, tx);
-				});
-			} finally {
-				tx.close();
-				this.active = null;
-			}
-		});
-	}
-
-	/**
-	 * BEGIN/COMMIT around an operation, joining any transaction already open.
-	 * Takes no place in the book, so a caller already holding one may use it.
-	 */
-	async atomic<T>(operation: () => Promise<T>): Promise<T> {
-		if (this.adapter.inTransaction()) {
-			return operation();
-		}
-
-		await this.adapter.beginTransaction();
-
-		try {
-			const result = await operation();
-			await this.adapter.commit();
-			return result;
-		} catch (error) {
-			await this.adapter.rollback();
-			throw error;
-		}
+		return this.enqueue(() => this.runTransaction(callback), label);
 	}
 
 	/**
@@ -149,11 +125,7 @@ export class ORM {
 			// Reading the stack is affordable here: only an untokened write
 			// during a transaction reaches it.
 			if (calledFromTransactionBody()) {
-				throw new Error(
-					`[orm] ${label ?? 'A write'} was issued inside transaction() without its tx handle, ` +
-						`so it would be held until the transaction ends and the transaction would ` +
-						`wait on it. Pass the handle: transaction(async tx => { await …(tx) }).`,
-				);
+				throw this.missingHandle(label);
 			}
 			return this.enqueue(operation, label);
 		}
@@ -163,6 +135,51 @@ export class ORM {
 		}
 
 		return this.enqueue(operation);
+	}
+
+	/** Must be called from the book: the transaction is its own entry. */
+	private async runTransaction<T>(
+		callback: (tx: Transaction) => Promise<T>,
+	): Promise<T> {
+		const tx = new Transaction();
+		// Set before BEGIN, so a write issued while it is in flight is held.
+		this.active = tx;
+
+		try {
+			await this.adapter.beginTransaction();
+
+			try {
+				const result = await ormTransactionBody(callback, tx);
+				await this.adapter.commit();
+				return result;
+			} catch (error) {
+				await this.rollbackAfterFailure();
+				throw error;
+			}
+		} finally {
+			tx.close();
+			this.active = null;
+		}
+	}
+
+	/** A failed rollback is reported rather than thrown, so the error that caused it survives. */
+	private async rollbackAfterFailure(): Promise<void> {
+		try {
+			await this.adapter.rollback();
+		} catch (rollbackError) {
+			console.error(
+				'[orm] Rolling back after a failed transaction failed too; the original error is rethrown.',
+				rollbackError,
+			);
+		}
+	}
+
+	private missingHandle(label?: string): Error {
+		return new Error(
+			`[orm] ${label ?? 'A write'} was issued inside transaction() without its tx handle, ` +
+				`so it would be held until the transaction ends and the transaction would ` +
+				`wait on it. Pass the handle: transaction(async tx => { await …(tx) }).`,
+		);
 	}
 
 	/** Appends to the book, warning if a transaction holds it up for too long. */

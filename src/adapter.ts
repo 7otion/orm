@@ -20,7 +20,6 @@ export interface DatabaseAdapter {
 
 	rollback(): Promise<void>;
 
-	/** Used to suppress result caching and to detect nested transactions. */
 	inTransaction(): boolean;
 
 	/**

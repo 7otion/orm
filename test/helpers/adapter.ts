@@ -77,8 +77,11 @@ export class BunSqliteAdapter implements DatabaseAdapter {
 
 	async rollback(): Promise<void> {
 		if (!this.inTx) throw new Error('No transaction in progress');
-		this.db.exec('ROLLBACK');
-		this.inTx = false;
+		try {
+			this.db.exec('ROLLBACK');
+		} finally {
+			this.inTx = false;
+		}
 	}
 
 	inTransaction(): boolean {

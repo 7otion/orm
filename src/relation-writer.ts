@@ -3,14 +3,16 @@
 import { ORM } from './orm';
 import { HasMany } from './relationships/hasMany';
 import { MorphMany } from './relationships/morphMany';
-import { clearRelation, dynamicWhere, getAttribute } from './internal';
+import {
+	KEY_SEPARATOR,
+	clearRelation,
+	dynamicWhere,
+	getAttribute,
+} from './internal';
 import type { Model, ModelStatic } from './model';
 import type { QueryBuilder } from './query-builder';
 import type { DatabaseRow } from './types';
 import type { Transaction } from './transaction';
-
-/** Joins identity columns into one key; no column value can contain it. */
-const SEPARATOR = '\u0000';
 
 /** A member's identity: the columns given, or one bare value for a single column. */
 export type RelationMember = DatabaseRow | string | number;
@@ -59,64 +61,65 @@ export class RelationWriter<T extends Model<T>> {
 		const match = this.matchColumns(options.matchOn);
 		const incoming = members.map(member => this.toRow(member, match));
 
-		const existing = await this.load();
-		const byKey = new Map(
-			existing.map(model => [this.keyOf(model, match), model]),
+		// The diff is taken inside the unit, so writes queued ahead of it are seen.
+		const result = await ORM.getInstance().transaction(
+			async handle => {
+				const existing = await this.load();
+				const byKey = new Map(
+					existing.map(model => [this.keyOf(model, match), model]),
+				);
+
+				const create: DatabaseRow[] = [];
+				const update: T[] = [];
+				const seen = new Set<string>();
+				let unchanged = 0;
+
+				for (const row of incoming) {
+					const key = this.identity(row, match);
+					seen.add(key);
+
+					const current = byKey.get(key);
+					if (!current) {
+						create.push(this.own(row));
+						continue;
+					}
+
+					const changed = this.applyTo(current, row, match);
+					if (changed) update.push(current);
+					else unchanged++;
+				}
+
+				const remove = existing.filter(
+					model => !seen.has(this.keyOf(model, match)),
+				);
+
+				if (remove.length > 0) {
+					await this.matching(
+						remove.map(model => this.rowOf(model, match)),
+						match,
+					).delete(handle);
+				}
+				if (create.length > 0) {
+					await this.related().createMany(create, handle);
+				}
+				if (update.length > 0) {
+					await this.related().updateMany(update, handle);
+				}
+
+				return {
+					attached: create.length,
+					detached: remove.length,
+					updated: update.length,
+					unchanged,
+				};
+			},
+			tx,
+			`${this.parent.constructor.name}.relation('${this.name}').sync()`,
 		);
-
-		const create: DatabaseRow[] = [];
-		const update: T[] = [];
-		const seen = new Set<string>();
-		let unchanged = 0;
-
-		for (const row of incoming) {
-			const key = this.identity(row, match);
-			seen.add(key);
-
-			const current = byKey.get(key);
-			if (!current) {
-				create.push(this.own(row));
-				continue;
-			}
-
-			const changed = this.applyTo(current, row, match);
-			if (changed) update.push(current);
-			else unchanged++;
-		}
-
-		const remove = existing.filter(
-			model => !seen.has(this.keyOf(model, match)),
-		);
-
-		const run = async (handle: Transaction): Promise<void> => {
-			if (remove.length > 0) {
-				await this.matching(
-					remove.map(model => this.rowOf(model, match)),
-					match,
-				).delete(handle);
-			}
-			if (create.length > 0) {
-				await this.related().createMany(create, handle);
-			}
-			if (update.length > 0) {
-				await this.related().updateMany(update, handle);
-			}
-		};
-
-		if (create.length > 0 || update.length > 0 || remove.length > 0) {
-			// Already inside the caller's transaction, or opening our own.
-			if (tx) await run(tx);
-			else await ORM.getInstance().transaction(run);
-		}
 
 		this.invalidate();
 
-		return {
-			attached: create.length,
-			detached: remove.length,
-			updated: update.length,
-			unchanged,
-		};
+		return result;
 	}
 
 	/* ── internals ──────────────────────────────────────────────────────── */
@@ -194,13 +197,13 @@ export class RelationWriter<T extends Model<T>> {
 	}
 
 	private identity(row: DatabaseRow, match: string[]): string {
-		return match.map(column => String(row[column])).join(SEPARATOR);
+		return match.map(column => String(row[column])).join(KEY_SEPARATOR);
 	}
 
 	private keyOf(model: T, match: string[]): string {
 		return match
 			.map(column => String(getAttribute(model, column)))
-			.join(SEPARATOR);
+			.join(KEY_SEPARATOR);
 	}
 
 	private rowOf(model: T, match: string[]): DatabaseRow {

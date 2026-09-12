@@ -10,6 +10,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { Model } from '../src/model';
+import { ORM } from '../src/orm';
 import { freshDatabase } from './helpers/setup';
 
 class Tag extends Model<Tag> {
@@ -205,6 +206,51 @@ describe('identifying members', () => {
 		);
 
 		expect(await Link.query().get()).toHaveLength(2);
+	});
+});
+
+describe('transaction isolation', () => {
+	test('a sync issued while a transaction is open is not swept into its rollback', async () => {
+		const owner = await seed();
+
+		const tx = ORM.getInstance().transaction(async () => {
+			await new Promise(r => setTimeout(r, 20));
+			throw new Error('rollback');
+		});
+		const outside = owner.relation('tags').sync(['hero']);
+
+		await expect(tx).rejects.toThrow('rollback');
+		await outside;
+
+		expect(await tags()).toEqual(['hero:0']);
+	});
+
+	test('a sync inside a transaction without its handle is reported', async () => {
+		const owner = await seed();
+
+		await expect(
+			ORM.getInstance().transaction(async () => {
+				await owner.relation('tags').sync(['hero']);
+			}),
+		).rejects.toThrow(/without its tx handle/);
+	});
+
+	test('a sync diffs against the rows as they are when it runs', async () => {
+		const owner = await seed();
+
+		const tx = ORM.getInstance().transaction(async tx => {
+			await new Promise(r => setTimeout(r, 20));
+			await Tag.create(
+				{ character_ref: 'alice', tag: 'mage', sort: 0 },
+				tx,
+			);
+		});
+		const synced = owner.relation('tags').sync(['hero']);
+
+		await tx;
+		await synced;
+
+		expect(await tags()).toEqual(['hero:0']);
 	});
 });
 

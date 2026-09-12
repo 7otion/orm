@@ -167,8 +167,11 @@ export class TauriAdapter implements DatabaseAdapter {
 			throw new Error('No transaction in progress');
 		}
 
-		await db.execute('ROLLBACK');
-		this.inTransactionFlag = false;
+		try {
+			await db.execute('ROLLBACK');
+		} finally {
+			this.inTransactionFlag = false;
+		}
 	}
 
 	inTransaction(): boolean {

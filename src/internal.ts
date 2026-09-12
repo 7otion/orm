@@ -5,6 +5,9 @@ import type { QueryValue } from './types';
  * `model.ts`, which imports the mixins itself.
  */
 
+/** Joins several values into one key; no column value can contain it. */
+export const KEY_SEPARATOR = '\u0000';
+
 /** A plain or dotted name, optionally ending in `*`. */
 const IDENTIFIER =
 	/^(?:[A-Za-z_][A-Za-z0-9_$]*|\*)(?:\.(?:[A-Za-z_][A-Za-z0-9_$]*|\*))*$/;

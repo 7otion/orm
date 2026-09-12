@@ -10,7 +10,7 @@ nothing in the core is SQLite-specific.
   morphMany, with eager loading and nested paths.
 - **Column casts** — `boolean`, `json` and `date` built in, or write your own.
 - **Dirty tracking** — updates write only the columns that changed.
-- **Transactions** — nested calls collapse into the outermost one.
+- **Transactions** — nested calls pass the handle and run inside the outermost one.
 - **Write queue** — serialises writes for databases that need it.
 
 ## Install
@@ -618,8 +618,20 @@ await ORM.getInstance().transaction(async tx => {
 ```
 
 Commits on success, rolls back on throw, and returns the callback's value.
-Nested calls join the outermost transaction — only it commits — and receive the
-same handle.
+A nested call passes the open transaction's handle and runs inside it — only the
+outermost commits:
+
+```ts
+await ORM.getInstance().transaction(async tx => {
+	await archive(tx);
+	await ORM.getInstance().transaction(async inner => {
+		await user.save(inner); // `inner` is `tx`
+	}, tx);
+});
+```
+
+Without the handle, a nested call inside the body is reported like any other
+write, and a call from unrelated code waits for the open transaction to end.
 
 Reads take no handle. They are never queued, and inside the transaction they
 already see its own uncommitted rows.
