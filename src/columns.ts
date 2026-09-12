@@ -84,6 +84,24 @@ export type ColumnKeys<T> = Exclude<
 > &
 	string;
 
+/**
+ * Relations holding many rows — the ones with a set `relation()` can write.
+ * To-one relations are excluded: they have no set, only a value to assign.
+ */
+export type ToManyRelationKeys<T> = Exclude<
+	{
+		[K in keyof T]-?: [NonNullable<T[K]>] extends [readonly ModelMarker[]]
+			? K
+			: never;
+	}[keyof T],
+	keyof Model<any> | `_${string}`
+> &
+	string;
+
+/** The model on the far side of a to-many relation. */
+export type RelatedModel<T, K extends keyof T> =
+	NonNullable<T[K]> extends readonly (infer M)[] ? M : never;
+
 /** A model's columns, as a plain object type. */
 export type Columns<T> = { [K in ColumnKeys<T>]: T[K] };
 

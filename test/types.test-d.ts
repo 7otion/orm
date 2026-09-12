@@ -22,6 +22,7 @@ import type { LoadableRelation } from '../src/relationships/relationship';
 
 import {
 	Category,
+	Character,
 	Line,
 	Note,
 	Passage,
@@ -559,6 +560,25 @@ export function _relationshipRegistry() {
 {
 	const target: LoadableRelation = Note.relationships['target']!;
 	void target;
+}
+
+/* `relation()` is checked against the model's own to-many relations, the same
+ * way `with()` is checked against its relationships literal. */
+{
+	const character = {} as Character;
+	const passage = {} as Passage;
+
+	character.relation('tags');
+	passage.relation('lines');
+
+	// @ts-expect-error misspelled relation
+	character.relation('tagz');
+
+	// @ts-expect-error a column, not a relation
+	character.relation('name');
+
+	// @ts-expect-error a to-one relation has no set to write
+	passage.relation('group');
 }
 
 export type {};

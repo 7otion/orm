@@ -16,6 +16,12 @@ export { Transaction } from './transaction';
 export type { DatabaseAdapter } from './adapter';
 export type { SqlDialect } from './dialect';
 export { QueryBuilder } from './query-builder';
+export {
+	RelationWriter,
+	type RelationMember,
+	type RelationWriteOptions,
+	type SyncResult,
+} from './relation-writer';
 
 export type {
 	DatabaseRow,

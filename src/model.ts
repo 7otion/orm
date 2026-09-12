@@ -27,9 +27,10 @@ import {
 	setRelation,
 } from './internal';
 import type { AnyRelations } from './relation-paths';
-import type { Patch } from './columns';
+import type { Patch, RelatedModel, ToManyRelationKeys } from './columns';
 import { BUILTIN_CASTS, Caster, type ColumnCast, DateCast } from './casts';
 import { Timestamps } from './timestamps';
+import { RelationWriter, toManyRelation } from './relation-writer';
 import type { Transaction } from './transaction';
 
 export interface ModelConstructor<TModel extends Model<TModel>> {
@@ -528,6 +529,22 @@ export abstract class Model<T extends Model<T>> {
 		}
 
 		return this;
+	}
+
+	/** Reconciles the set of rows on the far side of a to-many relation. */
+	relation<K extends ToManyRelationKeys<T>>(
+		name: K,
+	): RelationWriter<RelatedModel<T, K> & Model<any>> {
+		const ModelClass = this.constructor as typeof Model;
+		const relation = findRelationship(ModelClass.relationships, name);
+
+		if (!relation) {
+			throw new Error(
+				`[orm] ${ModelClass.name} declares no relation named '${name}'.`,
+			);
+		}
+
+		return new RelationWriter(this, name, toManyRelation(relation, name));
 	}
 
 	/** Replays whatever was eager-loaded, or only the paths given. */
