@@ -4,8 +4,27 @@
 
 import { describe, expect, test } from 'bun:test';
 
-import { Character, Line, Passage, Role, User } from './helpers/models';
+import {
+	Character,
+	Fragment,
+	Line,
+	Passage,
+	Role,
+	User,
+} from './helpers/models';
 import { freshDatabase } from './helpers/setup';
+
+async function seedFragments(): Promise<void> {
+	const rows: [string, string, string][] = [
+		['appearance', 'alice', 'a1'],
+		['appearance', 'alice', 'a2'],
+		['appearance', 'bob', 'b1'],
+		['secrets', 'alice', 's1'],
+	];
+	for (const [schema_ref, owner_ref, suffix] of rows) {
+		await Fragment.create({ schema_ref, owner_ref, suffix, sort: 0 });
+	}
+}
 
 async function seedUsers(): Promise<void> {
 	await User.create({ name: 'Ann', status: 'active', age: 30 });
@@ -175,6 +194,100 @@ describe('ordering, limiting and projection', () => {
 
 		const rows = await User.query().selectRaw('COUNT(*) as total').get();
 		expect((rows[0] as unknown as { total: number }).total).toBe(4);
+	});
+});
+
+describe('grouping', () => {
+	test('groupBy quotes its columns and sits before ORDER BY', async () => {
+		const { adapter } = await freshDatabase();
+		await seedFragments();
+
+		adapter.clearLog();
+		await Fragment.query()
+			.selectRaw('schema_ref, owner_ref, COUNT(*) AS n')
+			.groupBy('schema_ref', 'owner_ref')
+			.orderBy('schema_ref', 'asc')
+			.aggregate();
+
+		const select = adapter.log.find(e => e.kind === 'query')!;
+		expect(select.sql).toContain('GROUP BY "schema_ref", "owner_ref"');
+		expect(select.sql.indexOf('GROUP BY')).toBeLessThan(
+			select.sql.indexOf('ORDER BY'),
+		);
+	});
+
+	test('aggregate returns one row per group, with the count', async () => {
+		await freshDatabase();
+		await seedFragments();
+
+		const rows = await Fragment.query()
+			.selectRaw('schema_ref, owner_ref, COUNT(*) AS n')
+			.groupBy('schema_ref', 'owner_ref')
+			.aggregate<{ schema_ref: string; owner_ref: string; n: number }>();
+
+		expect(
+			rows.map(r => `${r.schema_ref}/${r.owner_ref}=${r.n}`).sort(),
+		).toEqual([
+			'appearance/alice=2',
+			'appearance/bob=1',
+			'secrets/alice=1',
+		]);
+	});
+
+	test('aggregate rows are plain rows, not models', async () => {
+		await freshDatabase();
+		await seedFragments();
+
+		const [row] = await Fragment.query()
+			.selectRaw('schema_ref, COUNT(*) AS n')
+			.groupBy('schema_ref')
+			.aggregate();
+
+		// Nothing hydrated: no save(), and no _exists to make one look persisted.
+		expect(row).not.toBeInstanceOf(Fragment);
+		expect((row as { save?: unknown }).save).toBeUndefined();
+	});
+
+	test('a where still narrows what is grouped', async () => {
+		await freshDatabase();
+		await seedFragments();
+
+		const rows = await Fragment.query()
+			.where('owner_ref', 'alice')
+			.selectRaw('schema_ref, COUNT(*) AS n')
+			.groupBy('schema_ref')
+			.aggregate<{ schema_ref: string; n: number }>();
+
+		expect(rows.map(r => `${r.schema_ref}=${r.n}`).sort()).toEqual([
+			'appearance=2',
+			'secrets=1',
+		]);
+	});
+
+	test('aggregate works without grouping', async () => {
+		await freshDatabase();
+		await seedFragments();
+
+		const [row] = await Fragment.query()
+			.selectRaw('COUNT(*) AS n')
+			.aggregate<{ n: number }>();
+
+		expect(row!.n).toBe(4);
+	});
+
+	test('get() on a grouped query throws rather than hydrating', async () => {
+		await freshDatabase();
+		await seedFragments();
+
+		// The `this` type rejects this at compile time; a cast is how a caller
+		// reaches it anyway, and the guard is what catches them.
+		const grouped = Fragment.query()
+			.selectRaw('schema_ref, COUNT(*) AS n')
+			.groupBy('schema_ref') as unknown as ReturnType<
+			typeof Fragment.query
+		>;
+
+		await expect(grouped.get()).rejects.toThrow(/use aggregate\(\)/i);
 	});
 });
 

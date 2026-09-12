@@ -20,7 +20,26 @@ import {
 import type { AnyRelations, RelationPath } from './relation-paths';
 import type { ColumnRef, Patch, ValueFor, ValueForOperator } from './columns';
 
-export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
+/**
+ * `Grouped` is a phantom flag, erased at runtime. `groupBy()` flips it, and the
+ * methods that hydrate rows into models take a `this` typed against `false`, so
+ * a grouped query cannot reach them.
+ */
+export class QueryBuilder<
+	T extends Model<T>,
+	TRelations = AnyRelations,
+	Grouped extends boolean = false,
+> {
+	/**
+	 * @internal Phantom marker. `declare` emits nothing, so no instance ever
+	 * carries it at runtime.
+	 *
+	 * It exists so that `Grouped` occupies a member position. Without one, every
+	 * instantiation is structurally identical and mutually assignable, which
+	 * makes the `this` parameters below accept a grouped builder anyway.
+	 */
+	declare readonly __grouped: Grouped;
+
 	private query: QueryStructure;
 	// Only used to construct instances, so the minimal class type suffices.
 	private modelClass: ModelStatic<T>;
@@ -184,11 +203,50 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 	}
 
 	/**
+	 * Groups the rows, which stops them being model rows: read them with
+	 * `aggregate()`, since `get()` and the other hydrating terminals are typed
+	 * out of reach from here.
+	 */
+	groupBy(...columns: ColumnRef<T>[]): QueryBuilder<T, TRelations, true> {
+		this.query.groups = columns.map(c =>
+			assertIdentifier(String(c), 'column'),
+		);
+		return this as unknown as QueryBuilder<T, TRelations, true>;
+	}
+
+	/**
+	 * Rows exactly as the adapter returned them. Nothing is hydrated, so a
+	 * projection that is not a row of `T` — a COUNT, a GROUP BY — stays honest
+	 * instead of arriving as a model with absent columns and no identity.
+	 */
+	async aggregate<R = DatabaseRow>(): Promise<R[]> {
+		// `Grouped` is phantom, so the constraint cannot see which instantiation
+		// it is being handed.
+		this.relationshipConstraint?.(
+			this as unknown as QueryBuilder<T, TRelations>,
+		);
+
+		const orm = ORM.getInstance();
+		const dialect = orm.getDialect();
+
+		const compiled = dialect.compileSelect(this.query);
+
+		const rows = await orm
+			.getAdapter()
+			.query(compiled.sql, compiled.bindings);
+
+		return rows as R[];
+	}
+
+	/**
 	 * Eager load relations, including nested dotted paths. Names are checked
 	 * against the model's `relationships` literal; models without one accept
 	 * any string.
 	 */
-	with(...relations: RelationPath<TRelations>[]): this {
+	with(
+		this: QueryBuilder<T, TRelations, false>,
+		...relations: RelationPath<TRelations>[]
+	): QueryBuilder<T, TRelations, false> {
 		for (const relation of relations) {
 			this.eagerLoad.add(relation);
 		}
@@ -202,7 +260,13 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 		return this;
 	}
 
-	async get(): Promise<T[]> {
+	async get(this: QueryBuilder<T, TRelations, false>): Promise<T[]> {
+		if (this.query.groups?.length) {
+			throw new Error(
+				'A grouped query returns rows, not models — use aggregate().',
+			);
+		}
+
 		if (this.relationshipConstraint) {
 			this.relationshipConstraint(this);
 		}
@@ -225,7 +289,7 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 		return models;
 	}
 
-	async first(): Promise<T | null> {
+	async first(this: QueryBuilder<T, TRelations, false>): Promise<T | null> {
 		this.limit(1);
 
 		const results = await this.get();
@@ -233,6 +297,7 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 	}
 
 	async paginate(
+		this: QueryBuilder<T, TRelations, false>,
 		page: number = 1,
 		limit: number = 20,
 	): Promise<{ data: T[]; total: number }> {
@@ -268,7 +333,7 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 	}
 
 	/** Deletes matching rows in one queued statement, returning the count. */
-	async delete(): Promise<number> {
+	async delete(this: QueryBuilder<T, TRelations, false>): Promise<number> {
 		if (this.relationshipConstraint) {
 			this.relationshipConstraint(this);
 		}
@@ -290,7 +355,10 @@ export class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
 	}
 
 	/** Updates matching rows in one queued statement, returning the count. */
-	async update(data: Patch<T>): Promise<number> {
+	async update(
+		this: QueryBuilder<T, TRelations, false>,
+		data: Patch<T>,
+	): Promise<number> {
 		if (this.relationshipConstraint) {
 			this.relationshipConstraint(this);
 		}

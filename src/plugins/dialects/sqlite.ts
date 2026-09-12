@@ -73,6 +73,13 @@ export class SQLiteDialect implements SqlDialect {
 			sql += whereClauses.join(' AND ');
 		}
 
+		if (query.groups && query.groups.length > 0) {
+			const groupClauses = query.groups.map(column =>
+				this.escapeIdentifier(column),
+			);
+			sql += ` GROUP BY ${groupClauses.join(', ')}`;
+		}
+
 		if (query.orders.length > 0) {
 			sql += ' ORDER BY ';
 			const orderClauses = query.orders.map(order => {

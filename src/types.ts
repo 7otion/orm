@@ -47,6 +47,7 @@ export interface QueryStructure {
 	limitValue?: number;
 	offsetValue?: number;
 	joins?: JoinClause[];
+	groups?: string[];
 }
 
 export interface JoinClause {

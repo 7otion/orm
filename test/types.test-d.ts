@@ -181,6 +181,61 @@ export function _relationPathsAreChecked() {
 	>();
 }
 
+/* ── A grouped query cannot reach the hydrating terminals ───────────────── */
+
+export async function _groupedQueriesAreTypedAwayFromModels() {
+	const grouped = Passage.query()
+		.selectRaw('status, COUNT(*) AS n')
+		.groupBy('status');
+
+	// The flag is flipped, and clause methods keep it.
+	expectType<
+		Equal<typeof grouped, QueryBuilder<Passage, PassageRelations, true>>
+	>();
+	expectType<
+		Equal<
+			ReturnType<typeof grouped.where>,
+			QueryBuilder<Passage, PassageRelations, true>
+		>
+	>();
+
+	// aggregate() is the way out, and it returns rows, not models.
+	const rows = await grouped.aggregate<{ status: string; n: number }>();
+	expectType<Equal<typeof rows, { status: string; n: number }[]>>();
+
+	// Every terminal that would hydrate a row into a model is out of reach.
+	// @ts-expect-error - a grouped row is not a Passage; use aggregate().
+	await grouped.get();
+	// @ts-expect-error - a grouped row is not a Passage; use aggregate().
+	await grouped.first();
+	// @ts-expect-error - paginating a grouped query would hydrate models.
+	await grouped.paginate(1, 10);
+	// @ts-expect-error - relations cannot be loaded onto non-model rows.
+	grouped.with('lines');
+	// @ts-expect-error - SQLite takes no GROUP BY in an UPDATE.
+	await grouped.update({ title: 'x' });
+	// @ts-expect-error - SQLite takes no GROUP BY in a DELETE.
+	await grouped.delete();
+
+	// groupBy still checks its columns against the model.
+	// @ts-expect-error - 'not_a_column' is not a column of Passage.
+	Passage.query().groupBy('not_a_column');
+}
+
+export async function _ungroupedQueriesKeepEveryTerminal() {
+	const plain = Passage.query();
+
+	// The default instantiation is unchanged, so nothing existing breaks.
+	expectType<Equal<typeof plain, QueryBuilder<Passage, PassageRelations>>>();
+	expectType<Equal<Awaited<ReturnType<typeof plain.get>>, Passage[]>>();
+
+	// aggregate() does not require grouping — a bare COUNT is a valid use.
+	const totals = await Passage.query()
+		.selectRaw('COUNT(*) AS n')
+		.aggregate<{ n: number }>();
+	expectType<Equal<typeof totals, { n: number }[]>>();
+}
+
 export function _untypedModelsStillAcceptAnyString() {
 	// Category never declares a `relationships` literal, so its registry is an
 	// index signature and stays permissive rather than becoming uncallable.
