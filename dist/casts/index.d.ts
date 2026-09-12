@@ -20,6 +20,8 @@ export declare class Caster {
     fromDatabaseRow(row: DatabaseRow): DatabaseRow;
     /** Attributes -> values a statement can bind. */
     toDatabaseValues(values: DatabaseRow): DatabaseRow;
+    /** One value in its stored shape. Uncast columns and nullish values pass through. */
+    toStored(column: string, value: unknown): unknown;
     /**
      * A snapshot for `_original`. Object values are cloned, so an in-place edit
      * of the live attribute does not also mutate what it is compared against.

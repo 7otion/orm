@@ -1,6 +1,7 @@
 /** Builds a QueryStructure for a SqlDialect to compile. Generates no SQL. */
 import type { DatabaseRow, OrderDirection, QueryStructure, QueryValue, WhereOperator } from './types';
 import type { Model, ModelStatic } from './model';
+import type { Transaction } from './transaction';
 import type { AnyRelations, RelationPath } from './relation-paths';
 import type { ColumnRef, Patch, ValueFor, ValueForOperator } from './columns';
 export declare class QueryBuilder<T extends Model<T>, TRelations = AnyRelations, Grouped extends boolean = false> {
@@ -41,6 +42,12 @@ export declare class QueryBuilder<T extends Model<T>, TRelations = AnyRelations,
     orWhereIn<K extends ColumnRef<T>>(column: K, values: ValueFor<T, K>[]): this;
     /** Collects a callback's conditions into one group, dropping it if empty. */
     private pushGroup;
+    /**
+     * Caller values reach the driver in the column's stored shape, as writes do.
+     * A qualified name belongs to another table, whose casts are not this
+     * model's to apply.
+     */
+    private stored;
     private basicCondition;
     private inCondition;
     join(type: 'INNER' | 'LEFT' | 'RIGHT', table: string, first: string, operator: string, second: string): this;
@@ -70,6 +77,8 @@ export declare class QueryBuilder<T extends Model<T>, TRelations = AnyRelations,
      */
     with(this: QueryBuilder<T, TRelations, false>, ...relations: RelationPath<TRelations>[]): QueryBuilder<T, TRelations, false>;
     setRelationshipConstraint(constraint: (query: QueryBuilder<T, TRelations>) => void): this;
+    /** Reachable only through a cast, or from JavaScript. */
+    private assertUngrouped;
     get(this: QueryBuilder<T, TRelations, false>): Promise<T[]>;
     first(this: QueryBuilder<T, TRelations, false>): Promise<T | null>;
     /** Whether any row matches, without building one. */
@@ -79,9 +88,9 @@ export declare class QueryBuilder<T extends Model<T>, TRelations = AnyRelations,
         total: number;
     }>;
     /** Deletes matching rows in one queued statement, returning the count. */
-    delete(this: QueryBuilder<T, TRelations, false>): Promise<number>;
+    delete(this: QueryBuilder<T, TRelations, false>, tx?: Transaction): Promise<number>;
     /** Updates matching rows in one queued statement, returning the count. */
-    update(this: QueryBuilder<T, TRelations, false>, data: Patch<T>): Promise<number>;
+    update(this: QueryBuilder<T, TRelations, false>, data: Patch<T>, tx?: Transaction): Promise<number>;
     private hydrate;
     private loadRelationships;
     private loadNestedRelationship;

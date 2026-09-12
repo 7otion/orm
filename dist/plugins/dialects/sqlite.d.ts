@@ -4,9 +4,9 @@ export declare class SQLiteDialect implements SqlDialect {
     /**
      * SQLite has no boolean type, and a driver handed a raw `true` will not
      * necessarily store 0/1 — tauri-plugin-sql, for one, binds it as the JSON
-     * text `"true"`, which no `= 1` comparison ever matches. Normalising here
-     * catches every value the builder emits, including `where` operands that
-     * never passed through a model's casts.
+     * text `"true"`, which no `= 1` comparison ever matches. The last step
+     * before the driver, so it also covers raw bindings, which carry no column
+     * name for a cast to key off.
      */
     private compiled;
     compileSelect(query: QueryStructure): CompiledQuery;

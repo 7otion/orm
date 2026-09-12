@@ -1,11 +1,12 @@
 /** Writes rows the caller supplies, rather than rows a query matched. */
+import type { Transaction } from './transaction';
 import type { Patch } from './columns';
 import type { Model, ModelStatic } from './model';
 export declare class BulkWriter<T extends Model<T>> {
     private readonly modelClass;
     constructor(modelClass: ModelStatic<T>);
-    insert(rows: Patch<T>[]): Promise<number>;
-    update(models: T[]): Promise<T[]>;
+    insert(rows: Patch<T>[], tx?: Transaction): Promise<number>;
+    update(models: T[], tx?: Transaction): Promise<T[]>;
     private keyColumns;
     private toRow;
     /** One statement per shape, so a row omitting a column keeps its default. */
