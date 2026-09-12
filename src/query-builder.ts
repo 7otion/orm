@@ -427,6 +427,30 @@ export class QueryBuilder<
 		return results.length > 0 ? results[0]! : null;
 	}
 
+	/** Whether any row matches, without building one. */
+	async exists(): Promise<boolean> {
+		this.relationshipConstraint?.(
+			this as unknown as QueryBuilder<T, TRelations>,
+		);
+
+		const orm = ORM.getInstance();
+		const dialect = orm.getDialect();
+
+		// Ordering cannot change whether a row is there.
+		const compiled = dialect.compileSelect({
+			...this.query,
+			selectRaw: '1',
+			orders: [],
+			limitValue: 1,
+		});
+
+		const rows = await orm
+			.getAdapter()
+			.query(compiled.sql, compiled.bindings);
+
+		return rows.length > 0;
+	}
+
 	async paginate(
 		this: QueryBuilder<T, TRelations, false>,
 		page: number = 1,

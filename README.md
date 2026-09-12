@@ -100,8 +100,13 @@ await User.query()
 	.get();
 
 await User.query().where('email', 'a@b.c').first(); // User | null
+await User.query().where('email', 'a@b.c').exists(); // boolean
 await User.query().paginate(2, 20); // { data, total }
 ```
+
+`exists()` compiles to `SELECT 1 … LIMIT 1` and never builds a model, so it is
+the cheap way to ask a yes/no question that `first() !== null` answers by
+hydrating a row.
 
 `where()` takes either `(column, value)` or `(column, operator, value)`.
 Operators: `=`, `!=`, `>`, `>=`, `<`, `<=`, `LIKE`, `IN`, `NOT IN`, `IS`,

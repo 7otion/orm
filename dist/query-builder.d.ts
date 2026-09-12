@@ -72,6 +72,8 @@ export declare class QueryBuilder<T extends Model<T>, TRelations = AnyRelations,
     setRelationshipConstraint(constraint: (query: QueryBuilder<T, TRelations>) => void): this;
     get(this: QueryBuilder<T, TRelations, false>): Promise<T[]>;
     first(this: QueryBuilder<T, TRelations, false>): Promise<T | null>;
+    /** Whether any row matches, without building one. */
+    exists(): Promise<boolean>;
     paginate(this: QueryBuilder<T, TRelations, false>, page?: number, limit?: number): Promise<{
         data: T[];
         total: number;

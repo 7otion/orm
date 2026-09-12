@@ -571,6 +571,57 @@ describe('first', () => {
 	});
 });
 
+describe('exists', () => {
+	test('reports whether anything matches', async () => {
+		await freshDatabase();
+		await seedUsers();
+
+		expect(await User.query().where('name', 'Ann').exists()).toBe(true);
+		expect(await User.query().where('name', 'Zed').exists()).toBe(false);
+	});
+
+	test('selects a literal and stops at one row', async () => {
+		const { adapter } = await freshDatabase();
+		await seedUsers();
+
+		adapter.clearLog();
+		await User.query().where('status', 'active').exists();
+
+		const select = adapter.log.find(e => e.kind === 'query')!;
+		expect(select.sql).toContain('SELECT 1 FROM users');
+		expect(select.sql).toContain('LIMIT ?');
+		expect(select.params).toEqual(['active', 1]);
+	});
+
+	test('drops ordering, which cannot change the answer', async () => {
+		const { adapter } = await freshDatabase();
+		await seedUsers();
+
+		adapter.clearLog();
+		await User.query().orderBy('name', 'desc').exists();
+
+		const select = adapter.log.find(e => e.kind === 'query')!;
+		expect(select.sql).not.toContain('ORDER BY');
+	});
+
+	test('asks whether any group matches', async () => {
+		await freshDatabase();
+		await seedFragments();
+
+		const many = await Fragment.query()
+			.groupBy('schema_ref')
+			.havingRaw('COUNT(*) > ?', [1])
+			.exists();
+		const tooMany = await Fragment.query()
+			.groupBy('schema_ref')
+			.havingRaw('COUNT(*) > ?', [99])
+			.exists();
+
+		expect(many).toBe(true);
+		expect(tooMany).toBe(false);
+	});
+});
+
 describe('paginate', () => {
 	test('returns a page plus the unpaginated total', async () => {
 		await freshDatabase();

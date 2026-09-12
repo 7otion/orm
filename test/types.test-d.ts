@@ -224,6 +224,10 @@ export async function _groupedQueriesAreTypedAwayFromModels() {
 	// having is the one filter that belongs on a grouped query, so it stays.
 	grouped.having('status', 'draft');
 	grouped.havingRaw('COUNT(*) > ?', [1]);
+
+	// exists() hydrates nothing, so grouping does not put it out of reach.
+	const anyGroup = await grouped.exists();
+	expectType<Equal<typeof anyGroup, boolean>>();
 }
 
 export function _havingIsCheckedLikeWhere() {
