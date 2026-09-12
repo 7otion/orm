@@ -92,21 +92,37 @@ export class ORM {
 		return this.enqueue(async () => {
 			const tx = new Transaction();
 
-			await this.adapter.beginTransaction();
-			this.active = tx;
-
 			try {
-				const result = await ormTransactionBody(callback, tx);
-				await this.adapter.commit();
-				return result;
-			} catch (error) {
-				await this.adapter.rollback();
-				throw error;
+				return await this.atomic(() => {
+					this.active = tx;
+					return ormTransactionBody(callback, tx);
+				});
 			} finally {
 				tx.close();
 				this.active = null;
 			}
 		});
+	}
+
+	/**
+	 * BEGIN/COMMIT around an operation, joining any transaction already open.
+	 * Takes no place in the book, so a caller already holding one may use it.
+	 */
+	async atomic<T>(operation: () => Promise<T>): Promise<T> {
+		if (this.adapter.inTransaction()) {
+			return operation();
+		}
+
+		await this.adapter.beginTransaction();
+
+		try {
+			const result = await operation();
+			await this.adapter.commit();
+			return result;
+		} catch (error) {
+			await this.adapter.rollback();
+			throw error;
+		}
 	}
 
 	/**

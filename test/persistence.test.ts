@@ -750,7 +750,7 @@ describe('updateMany', () => {
 		expect(adapter.log).toEqual([]);
 	});
 
-	test('a row that is no longer there is reported', async () => {
+	test('a row that is no longer there is reported by key', async () => {
 		await freshDatabase();
 		const [a, b] = await seedFragments();
 
@@ -759,7 +759,63 @@ describe('updateMany', () => {
 		a!.sort = 4;
 		b!.sort = 5;
 
-		await expect(Fragment.updateMany([a!, b!])).rejects.toThrow(/1 of 2/);
+		await expect(Fragment.updateMany([a!, b!])).rejects.toThrow(
+			/no longer exist.*1 of 2|1 of 2 .*no longer exist/,
+		);
+	});
+
+	test('the models that were written come back clean', async () => {
+		await freshDatabase();
+		const [a, b] = await seedFragments();
+
+		await b!.delete();
+
+		a!.sort = 4;
+		b!.sort = 5;
+
+		await expect(Fragment.updateMany([a!, b!])).rejects.toThrow();
+
+		// a's row was updated, so a is no longer pending.
+		expect(a!.isDirty).toBe(false);
+		// b's row is gone, so b is no longer a persisted model.
+		expect(b!._exists).toBe(false);
+	});
+
+	test('a batch too large for one statement still lands or fails whole', async () => {
+		const { adapter } = await freshDatabase();
+
+		await Fragment.createMany(
+			Array.from({ length: 400 }, (_, index) => ({
+				schema_ref: 'schema',
+				owner_ref: 'alice',
+				suffix: String(index),
+				content: null,
+				sort: index,
+			})),
+		);
+
+		const rows = await Fragment.query().where('owner_ref', 'alice').get();
+		rows.forEach(row => (row.sort = row.sort + 1000));
+
+		// The second of the two statements fails, as a constraint would.
+		const execute = adapter.execute.bind(adapter);
+		let updates = 0;
+		adapter.execute = async (sql, params) => {
+			if (sql.startsWith('UPDATE') && ++updates === 2) {
+				throw new Error('constraint violation');
+			}
+			return execute(sql, params);
+		};
+
+		await expect(Fragment.updateMany(rows)).rejects.toThrow(
+			'constraint violation',
+		);
+		adapter.execute = execute;
+
+		const written = (await Fragment.query().get()).filter(
+			row => row.sort >= 1000,
+		);
+		expect(written).toHaveLength(0);
 	});
 
 	test('reassigning a key in bulk is refused', async () => {
