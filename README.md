@@ -141,6 +141,34 @@ User.query().where('a', 1).where('b', 2).orWhere('c', 3);
 Nothing is parenthesised on your behalf, so reach for the callback form when
 you mean something else.
 
+### Grouping and aggregates
+
+`groupBy()` turns the rows into grouped rows, which are no longer rows of the
+model. `aggregate()` reads them as-is; `get()`, `first()`, `paginate()`,
+`with()`, `update()` and `delete()` are unavailable on a grouped query, and the
+compiler says so:
+
+```ts
+const counts = await Fragment.query()
+	.selectRaw('schema_ref, COUNT(*) AS n')
+	.groupBy('schema_ref')
+	.havingRaw('COUNT(*) > ?', [1])
+	.aggregate<{ schema_ref: string; n: number }>();
+// SELECT schema_ref, COUNT(*) AS n FROM fragments
+//   GROUP BY "schema_ref" HAVING COUNT(*) > ?
+
+await Fragment.query().groupBy('schema_ref').get();
+// Error: a grouped row is not a Fragment; use aggregate().
+```
+
+`having()` takes a model column like `where()` does; `havingRaw()` takes the
+aggregate expressions `HAVING` is usually written against. Neither requires
+`groupBy()` — `HAVING` over an ungrouped query treats the table as one group.
+
+`aggregate()` returns whatever the adapter returned, typed by its parameter. It
+never hydrates, so nothing arrives wearing a model's type without a model's
+columns.
+
 ### Identifiers vs expressions
 
 Values are always bound as parameters. Column and table names are interpolated

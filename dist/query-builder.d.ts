@@ -3,20 +3,8 @@ import type { DatabaseRow, OrderDirection, QueryStructure, QueryValue, WhereOper
 import type { Model, ModelStatic } from './model';
 import type { AnyRelations, RelationPath } from './relation-paths';
 import type { ColumnRef, Patch, ValueFor, ValueForOperator } from './columns';
-/**
- * `Grouped` is a phantom flag, erased at runtime. `groupBy()` flips it, and the
- * methods that hydrate rows into models take a `this` typed against `false`, so
- * a grouped query cannot reach them.
- */
 export declare class QueryBuilder<T extends Model<T>, TRelations = AnyRelations, Grouped extends boolean = false> {
-    /**
-     * @internal Phantom marker. `declare` emits nothing, so no instance ever
-     * carries it at runtime.
-     *
-     * It exists so that `Grouped` occupies a member position. Without one, every
-     * instantiation is structurally identical and mutually assignable, which
-     * makes the `this` parameters below accept a grouped builder anyway.
-     */
+    /** @internal Phantom marker, giving `Grouped` a member position. */
     readonly __grouped: Grouped;
     private query;
     private modelClass;
@@ -67,17 +55,13 @@ export declare class QueryBuilder<T extends Model<T>, TRelations = AnyRelations,
     select(...columns: ColumnRef<T>[]): this;
     /** Emitted verbatim, for aggregates and computed columns. */
     selectRaw(sql: string): this;
-    /**
-     * Groups the rows, which stops them being model rows: read them with
-     * `aggregate()`, since `get()` and the other hydrating terminals are typed
-     * out of reach from here.
-     */
+    /** Grouped rows are not model rows, so only `aggregate()` reads them. */
     groupBy(...columns: ColumnRef<T>[]): QueryBuilder<T, TRelations, true>;
-    /**
-     * Rows exactly as the adapter returned them. Nothing is hydrated, so a
-     * projection that is not a row of `T` — a COUNT, a GROUP BY — stays honest
-     * instead of arriving as a model with absent columns and no identity.
-     */
+    having<K extends ColumnRef<T>>(column: K, value: ValueFor<T, K>): this;
+    having<K extends ColumnRef<T>, Op extends WhereOperator>(column: K, operator: Op, value: ValueForOperator<T, K, Op>): this;
+    /** Emitted verbatim, for the aggregates HAVING is usually written against. */
+    havingRaw(sql: string, bindings?: QueryValue[]): this;
+    /** Rows exactly as the adapter returned them; nothing is hydrated. */
     aggregate<R = DatabaseRow>(): Promise<R[]>;
     /**
      * Eager load relations, including nested dotted paths. Names are checked

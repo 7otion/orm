@@ -330,6 +330,25 @@ export class QueryBuilder<
 		return this as unknown as QueryBuilder<T, TRelations, true>;
 	}
 
+	having<K extends ColumnRef<T>>(column: K, value: ValueFor<T, K>): this;
+	having<K extends ColumnRef<T>, Op extends WhereOperator>(
+		column: K,
+		operator: Op,
+		value: ValueForOperator<T, K, Op>,
+	): this;
+	having(column: string, operatorOrValue?: unknown, value?: unknown): this {
+		(this.query.havings ??= []).push(
+			this.basicCondition(column, operatorOrValue, value),
+		);
+		return this;
+	}
+
+	/** Emitted verbatim, for the aggregates HAVING is usually written against. */
+	havingRaw(sql: string, bindings: QueryValue[] = []): this {
+		(this.query.havings ??= []).push({ type: 'raw', sql, bindings });
+		return this;
+	}
+
 	/** Rows exactly as the adapter returned them; nothing is hydrated. */
 	async aggregate<R = DatabaseRow>(): Promise<R[]> {
 		// The constraint is declared against the ungrouped builder.

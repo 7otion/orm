@@ -220,6 +220,29 @@ export async function _groupedQueriesAreTypedAwayFromModels() {
 	// groupBy still checks its columns against the model.
 	// @ts-expect-error - 'not_a_column' is not a column of Passage.
 	Passage.query().groupBy('not_a_column');
+
+	// having is the one filter that belongs on a grouped query, so it stays.
+	grouped.having('status', 'draft');
+	grouped.havingRaw('COUNT(*) > ?', [1]);
+}
+
+export function _havingIsCheckedLikeWhere() {
+	const q = Passage.query();
+	type Q = QueryBuilder<Passage, PassageRelations>;
+
+	expectType<Equal<ReturnType<typeof q.having>, Q>>();
+	expectType<Equal<ReturnType<typeof q.havingRaw>, Q>>();
+
+	q.having('status', 'draft');
+	q.having('sort', '>', 1);
+	q.havingRaw('COUNT(*) > ?', [1]);
+
+	// @ts-expect-error - 'nope' is not a column of Passage.
+	q.having('nope', 'draft');
+	// @ts-expect-error - 'sort' is a number.
+	q.having('sort', 'not-a-number');
+	// @ts-expect-error - '>>>' is not a WhereOperator.
+	q.having('sort', '>>>', 1);
 }
 
 export async function _ungroupedQueriesKeepEveryTerminal() {

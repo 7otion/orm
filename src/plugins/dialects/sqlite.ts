@@ -53,6 +53,10 @@ export class SQLiteDialect implements SqlDialect {
 			sql += ` GROUP BY ${groupClauses.join(', ')}`;
 		}
 
+		if (query.havings && query.havings.length > 0) {
+			sql += ` HAVING ${this.compileWheres(query.havings, bindings)}`;
+		}
+
 		if (query.orders.length > 0) {
 			sql += ' ORDER BY ';
 			const orderClauses = query.orders.map(order => {

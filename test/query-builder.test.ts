@@ -438,6 +438,84 @@ describe('grouping', () => {
 		]);
 	});
 
+	test('havingRaw filters the groups, not the rows', async () => {
+		await freshDatabase();
+		await seedFragments();
+
+		const rows = await Fragment.query()
+			.selectRaw('schema_ref, COUNT(*) AS n')
+			.groupBy('schema_ref')
+			.havingRaw('COUNT(*) > ?', [1])
+			.aggregate<{ schema_ref: string; n: number }>();
+
+		// appearance has three rows, secrets one.
+		expect(rows.map(r => `${r.schema_ref}=${r.n}`)).toEqual([
+			'appearance=3',
+		]);
+	});
+
+	test('having takes a typed column', async () => {
+		await freshDatabase();
+		await seedFragments();
+
+		const rows = await Fragment.query()
+			.selectRaw('schema_ref, COUNT(*) AS n')
+			.groupBy('schema_ref')
+			.having('schema_ref', 'secrets')
+			.aggregate<{ schema_ref: string; n: number }>();
+
+		expect(rows.map(r => r.schema_ref)).toEqual(['secrets']);
+	});
+
+	test('HAVING sits between GROUP BY and ORDER BY', async () => {
+		const { adapter } = await freshDatabase();
+		await seedFragments();
+
+		adapter.clearLog();
+		await Fragment.query()
+			.selectRaw('schema_ref, COUNT(*) AS n')
+			.groupBy('schema_ref')
+			.havingRaw('COUNT(*) > ?', [0])
+			.orderBy('schema_ref', 'asc')
+			.aggregate();
+
+		const select = adapter.log.find(e => e.kind === 'query')!;
+		expect(select.sql.indexOf('GROUP BY')).toBeLessThan(
+			select.sql.indexOf('HAVING'),
+		);
+		expect(select.sql.indexOf('HAVING')).toBeLessThan(
+			select.sql.indexOf('ORDER BY'),
+		);
+	});
+
+	test('where bindings precede having bindings', async () => {
+		const { adapter } = await freshDatabase();
+		await seedFragments();
+
+		adapter.clearLog();
+		await Fragment.query()
+			.where('owner_ref', 'alice')
+			.selectRaw('schema_ref, COUNT(*) AS n')
+			.groupBy('schema_ref')
+			.havingRaw('COUNT(*) > ?', [1])
+			.aggregate();
+
+		const select = adapter.log.find(e => e.kind === 'query')!;
+		expect(select.params).toEqual(['alice', 1]);
+	});
+
+	test('having works without grouping', async () => {
+		await freshDatabase();
+		await seedFragments();
+
+		const rows = await Fragment.query()
+			.selectRaw('COUNT(*) AS n')
+			.havingRaw('COUNT(*) > ?', [2])
+			.aggregate<{ n: number }>();
+
+		expect(rows).toEqual([{ n: 4 }]);
+	});
+
 	test('aggregate works without grouping', async () => {
 		await freshDatabase();
 		await seedFragments();

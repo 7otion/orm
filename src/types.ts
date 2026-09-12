@@ -52,6 +52,7 @@ export interface QueryStructure {
 	offsetValue?: number;
 	joins?: JoinClause[];
 	groups?: string[];
+	havings?: WhereCondition[];
 }
 
 export interface JoinClause {
