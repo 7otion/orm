@@ -84,10 +84,9 @@ export function dynamicWhere<Q>(query: Q): DynamicQuery<Q> {
 
 /**
  * The declaration a write to `prop` would hit, from anywhere on the prototype
- * chain below `Object.prototype`.
- *
- * Stops where the Model proxy's `set` trap stops, so the two agree on what a
- * write means: a column named `toString` is a column, not a method.
+ * chain below `Object.prototype`. The proxy's `get` walks further, so a column
+ * named after an `Object.prototype` member is writable but reads back as the
+ * built-in.
  */
 export function findDeclaration(
 	target: object,
