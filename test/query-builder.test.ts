@@ -902,3 +902,65 @@ describe('limits on writes', () => {
 		expect(compiled.sql).toBe('DELETE FROM "users" WHERE "id" = ?');
 	});
 });
+
+describe('builder reuse', () => {
+	const seed = async () => {
+		await freshDatabase();
+		await User.create({ name: 'ann', status: 'active' });
+		await User.create({ name: 'bob', status: 'active' });
+		await User.create({ name: 'cid', status: 'archived' });
+	};
+
+	test('a terminal method leaves the builder alone', async () => {
+		await seed();
+		const query = User.query();
+
+		await query.first();
+		expect(await query.get()).toHaveLength(3);
+
+		await query.exists();
+		expect(await query.get()).toHaveLength(3);
+
+		await query.paginate(1, 2);
+		expect(await query.get()).toHaveLength(3);
+	});
+
+	test('clone() branches one base into several', async () => {
+		await seed();
+		const active = User.query().where('status', 'active');
+
+		expect(
+			(await active.clone().where('name', 'ann').get()).map(u => u.name),
+		).toEqual(['ann']);
+		expect((await active.clone().get()).map(u => u.name)).toEqual([
+			'ann',
+			'bob',
+		]);
+	});
+
+	test('clone() shares no arrays with its source', async () => {
+		await seed();
+		const base = User.query().where('status', 'active').with('profile');
+		const copy = base.clone();
+
+		copy.where('name', 'ann');
+
+		expect(base.getQuery().wheres).toHaveLength(1);
+		expect(copy.getQuery().wheres).toHaveLength(2);
+	});
+
+	test('a relationship constraint is applied once, not per terminal', async () => {
+		await seed();
+		const query = User.query().setRelationshipConstraint(builder => {
+			(
+				builder as never as { where(c: string, v: unknown): unknown }
+			).where('name', 'ann');
+		});
+
+		await query.exists();
+		await query.get();
+		await query.first();
+
+		expect(query.getQuery().wheres).toHaveLength(1);
+	});
+});

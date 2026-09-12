@@ -39,6 +39,9 @@ export class QueryBuilder<
 		query: QueryBuilder<T, TRelations>,
 	) => void;
 
+	/** The constraint adds conditions, so a second terminal must not re-add them. */
+	private constraintApplied = false;
+
 	constructor(modelClass: ModelStatic<T>, tableName: string) {
 		this.modelClass = modelClass;
 		this.query = {
@@ -396,10 +399,7 @@ export class QueryBuilder<
 
 	/** Rows exactly as the adapter returned them; nothing is hydrated. */
 	async aggregate<R = DatabaseRow>(): Promise<R[]> {
-		// The constraint is declared against the ungrouped builder.
-		this.relationshipConstraint?.(
-			this as unknown as QueryBuilder<T, TRelations>,
-		);
+		this.applyRelationshipConstraint();
 
 		const orm = ORM.getInstance();
 		const dialect = orm.getDialect();
@@ -435,6 +435,42 @@ export class QueryBuilder<
 		return this;
 	}
 
+	private applyRelationshipConstraint(): void {
+		if (!this.relationshipConstraint || this.constraintApplied) return;
+
+		this.constraintApplied = true;
+		this.relationshipConstraint(
+			this as unknown as QueryBuilder<T, TRelations>,
+		);
+	}
+
+	/**
+	 * An independent copy, for branching one base query into several. Chained
+	 * methods mutate the builder they are called on, as they do everywhere else.
+	 */
+	clone(): QueryBuilder<T, TRelations, Grouped> {
+		const copy = new QueryBuilder<T, TRelations, Grouped>(
+			this.modelClass,
+			this.query.table,
+		);
+
+		copy.query = {
+			...this.query,
+			wheres: [...this.query.wheres],
+			orders: [...this.query.orders],
+		};
+		if (this.query.columns) copy.query.columns = [...this.query.columns];
+		if (this.query.joins) copy.query.joins = [...this.query.joins];
+		if (this.query.groups) copy.query.groups = [...this.query.groups];
+		if (this.query.havings) copy.query.havings = [...this.query.havings];
+
+		copy.eagerLoad = new Set(this.eagerLoad);
+		copy.relationshipConstraint = this.relationshipConstraint;
+		copy.constraintApplied = this.constraintApplied;
+
+		return copy;
+	}
+
 	/** Reachable only through a cast, or from JavaScript. */
 	private assertUngrouped(method: string): void {
 		if (this.query.groups?.length) {
@@ -447,9 +483,7 @@ export class QueryBuilder<
 	async get(this: QueryBuilder<T, TRelations, false>): Promise<T[]> {
 		this.assertUngrouped('get');
 
-		if (this.relationshipConstraint) {
-			this.relationshipConstraint(this);
-		}
+		this.applyRelationshipConstraint();
 
 		const orm = ORM.getInstance();
 		const dialect = orm.getDialect();
@@ -470,17 +504,13 @@ export class QueryBuilder<
 	}
 
 	async first(this: QueryBuilder<T, TRelations, false>): Promise<T | null> {
-		this.limit(1);
-
-		const results = await this.get();
+		const results = await this.clone().limit(1).get();
 		return results.length > 0 ? results[0]! : null;
 	}
 
 	/** Whether any row matches, without building one. */
 	async exists(): Promise<boolean> {
-		this.relationshipConstraint?.(
-			this as unknown as QueryBuilder<T, TRelations>,
-		);
+		this.applyRelationshipConstraint();
 
 		const orm = ORM.getInstance();
 		const dialect = orm.getDialect();
@@ -505,35 +535,23 @@ export class QueryBuilder<
 		page: number = 1,
 		limit: number = 20,
 	): Promise<{ data: T[]; total: number }> {
-		if (this.relationshipConstraint) {
-			this.relationshipConstraint(this);
-		}
+		this.applyRelationshipConstraint();
 
 		const orm = ORM.getInstance();
 		const dialect = orm.getDialect();
 
-		const countQuery = { ...this.query };
-		const countCompiled = dialect.compileCount(countQuery);
+		const countCompiled = dialect.compileCount(this.query);
 		const countResult = await orm
 			.getAdapter()
 			.query(countCompiled.sql, countCompiled.bindings);
 		const total = countResult[0]?.count || 0;
 
-		const offset = (page - 1) * limit;
-		this.limit(limit).offset(offset);
+		const data = await this.clone()
+			.limit(limit)
+			.offset((page - 1) * limit)
+			.get();
 
-		const compiled = dialect.compileSelect(this.query);
-		const rows = await orm
-			.getAdapter()
-			.query(compiled.sql, compiled.bindings);
-
-		const models = rows.map((row: DatabaseRow) => this.hydrate(row));
-
-		if (this.eagerLoad.size > 0) {
-			await this.loadRelationships(models);
-		}
-
-		return { data: models, total };
+		return { data, total };
 	}
 
 	/** Deletes matching rows in one queued statement, returning the count. */
@@ -543,9 +561,7 @@ export class QueryBuilder<
 	): Promise<number> {
 		this.assertUngrouped('delete');
 
-		if (this.relationshipConstraint) {
-			this.relationshipConstraint(this);
-		}
+		this.applyRelationshipConstraint();
 
 		const orm = ORM.getInstance();
 		return orm.queueWrite(
@@ -575,9 +591,7 @@ export class QueryBuilder<
 	): Promise<number> {
 		this.assertUngrouped('update');
 
-		if (this.relationshipConstraint) {
-			this.relationshipConstraint(this);
-		}
+		this.applyRelationshipConstraint();
 
 		const orm = ORM.getInstance();
 		return orm.queueWrite(
