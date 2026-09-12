@@ -2,7 +2,7 @@
  * Compiles QueryStructure objects into database-specific SQL. Dialects never
  * execute SQL and know nothing about models or connections.
  */
-import type { CompiledQuery, QueryStructure, QueryValue } from './types';
+import type { AggregateFunction, CompiledQuery, QueryStructure, QueryValue } from './types';
 export interface SqlDialect {
     compileSelect(query: QueryStructure): CompiledQuery;
     compileInsert(table: string, data: Record<string, QueryValue>): CompiledQuery;
@@ -29,5 +29,11 @@ export interface SqlDialect {
      */
     compileUpdateQuery(query: QueryStructure, data: Record<string, QueryValue>): CompiledQuery;
     compileCount(query: QueryStructure): CompiledQuery;
+    /**
+     * One aggregate over one column, returned as `aggregate`. Optional: a
+     * dialect without it reports so when `sum`/`avg`/`min`/`max` is called.
+     * Limit, offset and order do not apply, as they do not for `compileCount`.
+     */
+    compileAggregate?(query: QueryStructure, fn: AggregateFunction, column: string): CompiledQuery;
 }
 //# sourceMappingURL=dialect.d.ts.map

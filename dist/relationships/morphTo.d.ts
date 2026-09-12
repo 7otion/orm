@@ -10,7 +10,7 @@ export interface MorphToConfig<T extends Model<T>> {
 export declare class MorphTo<T extends Model<T>> implements LoadableRelation {
     private parent;
     private config;
-    constructor(parent: any, config: MorphToConfig<T>);
+    constructor(parent: unknown, config: MorphToConfig<T>);
     getOwnerFields(): string[];
     get(parent?: Model<any>): Promise<T | null>;
     eagerLoadFor(models: Model<any>[], relationName: string): Promise<void>;

@@ -27,6 +27,8 @@ export declare abstract class Relationship<T extends Model<T>, TClass = unknown>
     protected localKey: string;
     protected get related(): ModelStatic<T>;
     constructor(parent: ModelClassRef | Model<any>, related: RelatedResolver<T>, foreignKey?: string, localKey?: string);
+    /** Which class names the foreign key; the owner, unless a subclass says otherwise. */
+    protected defaultForeignKey(): string;
     protected getParentKeyValue(parent: Model<any>): any;
     /** Lazy path: load for one parent. */
     abstract get(parent: Model<any>): Promise<T | T[] | null>;

@@ -6,6 +6,10 @@ import type { QueryValue } from './types';
  * methods, where the caller is explicitly taking responsibility.
  */
 export declare function assertIdentifier(value: string, kind: string): string;
+/** `BlogPost` -> `blog_post`. */
+export declare function snakeCase(name: string): string;
+/** The `<name>_id` a relation infers from a class name, dropping a `Model` suffix. */
+export declare function foreignKeyFor(className: string): string;
 /** Returned uppercased, so the dialect can compare against one spelling. */
 export declare function assertOperator(value: string, kind: string): string;
 /**
@@ -32,10 +36,9 @@ interface DynamicQuery<Q> {
 export declare function dynamicWhere<Q>(query: Q): DynamicQuery<Q>;
 /**
  * The declaration a write to `prop` would hit, from anywhere on the prototype
- * chain below `Object.prototype`.
- *
- * Stops where the Model proxy's `set` trap stops, so the two agree on what a
- * write means: a column named `toString` is a column, not a method.
+ * chain below `Object.prototype`. The proxy's `get` walks further, so a column
+ * named after an `Object.prototype` member is writable but reads back as the
+ * built-in.
  */
 export declare function findDeclaration(target: object, prop: string): PropertyDescriptor | undefined;
 /**

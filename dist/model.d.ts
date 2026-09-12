@@ -12,9 +12,10 @@ import { ChangeStateMixin } from './mixins/change-state.mixin';
 import { RelationshipLoaderMixin } from './mixins/relationship-loader.mixin';
 import type { ModelConfig, QueryValue } from './types';
 import type { AnyRelations } from './relation-paths';
-import type { Patch } from './columns';
+import type { Patch, RelatedModel, ToManyRelationKeys } from './columns';
 import { Caster } from './casts';
 import { Timestamps } from './timestamps';
+import { RelationWriter } from './relation-writer';
 import type { Transaction } from './transaction';
 export interface ModelConstructor<TModel extends Model<TModel>> {
     new (): TModel;
@@ -116,7 +117,7 @@ export declare abstract class Model<T extends Model<T>> {
     protected static hasOne<C extends ModelStatic<any>>(related: C | (() => C), foreignKey?: string, localKey?: string): HasOne<InstanceType<C>, C>;
     protected static hasMany<C extends ModelStatic<any>>(related: C | (() => C), foreignKey?: string, localKey?: string): HasMany<InstanceType<C>, C>;
     protected static belongsTo<C extends ModelStatic<any>>(related: C | (() => C), foreignKey?: string, localKey?: string): BelongsTo<InstanceType<C>, C>;
-    protected static belongsToMany<C extends ModelStatic<any>>(related: C, pivotTable: string, foreignPivotKey?: string, relatedPivotKey?: string, parentKey?: string, relatedKey?: string): BelongsToMany<InstanceType<C>, C>;
+    protected static belongsToMany<C extends ModelStatic<any>>(related: C | (() => C), pivotTable: string, foreignPivotKey?: string, relatedPivotKey?: string, parentKey?: string, relatedKey?: string): BelongsToMany<InstanceType<C>, C>;
     /**
      * Children in a table shared by several owner types, matched on the
      * discriminator as well as the foreign key.
@@ -137,6 +138,8 @@ export declare abstract class Model<T extends Model<T>> {
      * still accepts every column, so set one before filling from user input.
      */
     fill(data: Patch<T>): this;
+    /** Reconciles the set of rows on the far side of a to-many relation. */
+    relation<K extends ToManyRelationKeys<T>>(name: K): RelationWriter<RelatedModel<T, K> & Model<any>>;
     /** Replays whatever was eager-loaded, or only the paths given. */
     refresh(relationships?: string[]): Promise<void>;
 }

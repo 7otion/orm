@@ -1,5 +1,5 @@
 import type { SqlDialect } from '../../dialect';
-import type { CompiledQuery, QueryStructure, QueryValue } from '../../types';
+import type { AggregateFunction, CompiledQuery, QueryStructure, QueryValue } from '../../types';
 export declare class SQLiteDialect implements SqlDialect {
     /**
      * SQLite has no boolean type, and a driver handed a raw `true` will not
@@ -31,6 +31,7 @@ export declare class SQLiteDialect implements SqlDialect {
     compileDeleteQuery(query: QueryStructure): CompiledQuery;
     compileUpdateQuery(query: QueryStructure, data: Record<string, QueryValue>): CompiledQuery;
     compileCount(query: QueryStructure): CompiledQuery;
+    compileAggregate(query: QueryStructure, fn: AggregateFunction, column: string): CompiledQuery;
     /** Joins each condition to the one before it, parenthesising only groups. */
     private compileWheres;
     /** Bindings are pushed in traversal order, so nesting cannot reorder them. */
