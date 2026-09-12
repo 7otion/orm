@@ -36,6 +36,11 @@ export declare class ORM {
      */
     transaction<T>(callback: (tx: Transaction) => Promise<T>): Promise<T>;
     /**
+     * BEGIN/COMMIT around an operation, joining any transaction already open.
+     * Takes no place in the book, so a caller already holding one may use it.
+     */
+    atomic<T>(operation: () => Promise<T>): Promise<T>;
+    /**
      * Serialises a write behind any already in flight. A write carrying the open
      * transaction's handle runs immediately: it is that transaction, and queuing
      * it would make the transaction wait on itself. Reads are never queued.

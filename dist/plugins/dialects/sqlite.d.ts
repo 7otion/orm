@@ -10,6 +10,17 @@ export declare class SQLiteDialect implements SqlDialect {
      */
     private compiled;
     compileSelect(query: QueryStructure): CompiledQuery;
+    private compileJoins;
+    private compileOrders;
+    /** SQLite's grammar is LIMIT expr [OFFSET expr]; -1 is its no-limit sentinel. */
+    private compileLimit;
+    /**
+     * UPDATE and DELETE take no join, limit or offset of their own, so anything
+     * beyond a plain WHERE is expressed as the set of rows a SELECT would match.
+     * Rowid tables only; a WITHOUT ROWID table has no such column.
+     */
+    private rowidFilter;
+    private needsRowidFilter;
     compileInsert(table: string, data: Record<string, QueryValue>): CompiledQuery;
     /** The historical SQLITE_MAX_VARIABLE_NUMBER, safe on every build. */
     readonly maxBindParameters = 999;
