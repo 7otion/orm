@@ -98,6 +98,86 @@ export class SQLiteDialect implements SqlDialect {
 		return this.compiled(sql, values);
 	}
 
+	/** The historical SQLITE_MAX_VARIABLE_NUMBER, safe on every build. */
+	readonly maxBindParameters = 999;
+
+	compileInsertMany(
+		table: string,
+		rows: Record<string, QueryValue>[],
+	): CompiledQuery {
+		const columns = Object.keys(rows[0] ?? {});
+		const columnList = columns
+			.map(col => this.escapeIdentifier(col))
+			.join(', ');
+
+		const placeholders = columns.map(() => '?').join(', ');
+		const tuples = rows.map(() => `(${placeholders})`).join(', ');
+
+		const bindings = rows.flatMap(row => columns.map(col => row[col]!));
+
+		const sql = `INSERT INTO ${table} (${columnList}) VALUES ${tuples}`;
+
+		return this.compiled(sql, bindings);
+	}
+
+	compileUpdateMany(
+		table: string,
+		rows: Record<string, QueryValue>[],
+		keyColumns: string[],
+		set: Record<string, QueryValue>,
+	): CompiledQuery {
+		const bindings: QueryValue[] = [];
+		const keys = new Set(keyColumns);
+
+		// `ELSE <column>` leaves a row alone for any column it does not carry.
+		const matchRow = keyColumns
+			.map(column => `${this.escapeIdentifier(column)} = ?`)
+			.join(' AND ');
+
+		const assignments: string[] = [];
+
+		const caseColumns = [
+			...new Set(rows.flatMap(row => Object.keys(row))),
+		].filter(column => !keys.has(column));
+
+		for (const column of caseColumns) {
+			const branches: string[] = [];
+
+			for (const row of rows) {
+				if (!(column in row)) continue;
+				branches.push(`WHEN ${matchRow} THEN ?`);
+				for (const key of keyColumns) bindings.push(row[key]!);
+				bindings.push(row[column]!);
+			}
+
+			const escaped = this.escapeIdentifier(column);
+			assignments.push(
+				`${escaped} = CASE ${branches.join(' ')} ELSE ${escaped} END`,
+			);
+		}
+
+		for (const [column, value] of Object.entries(set)) {
+			assignments.push(`${this.escapeIdentifier(column)} = ?`);
+			bindings.push(value);
+		}
+
+		let sql = `UPDATE ${table} SET ${assignments.join(', ')}`;
+
+		if (keyColumns.length === 1) {
+			const column = keyColumns[0]!;
+			const placeholders = rows.map(() => '?').join(', ');
+			sql += ` WHERE ${this.escapeIdentifier(column)} IN (${placeholders})`;
+			for (const row of rows) bindings.push(row[column]!);
+		} else {
+			sql += ` WHERE ${rows.map(() => `(${matchRow})`).join(' OR ')}`;
+			for (const row of rows) {
+				for (const key of keyColumns) bindings.push(row[key]!);
+			}
+		}
+
+		return this.compiled(sql, bindings);
+	}
+
 	compileUpdate(
 		table: string,
 		data: Record<string, QueryValue>,

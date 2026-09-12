@@ -11,6 +11,10 @@ export declare class SQLiteDialect implements SqlDialect {
     private compiled;
     compileSelect(query: QueryStructure): CompiledQuery;
     compileInsert(table: string, data: Record<string, QueryValue>): CompiledQuery;
+    /** The historical SQLITE_MAX_VARIABLE_NUMBER, safe on every build. */
+    readonly maxBindParameters = 999;
+    compileInsertMany(table: string, rows: Record<string, QueryValue>[]): CompiledQuery;
+    compileUpdateMany(table: string, rows: Record<string, QueryValue>[], keyColumns: string[], set: Record<string, QueryValue>): CompiledQuery;
     compileUpdate(table: string, data: Record<string, QueryValue>, primaryKey: string | string[], id: QueryValue | QueryValue[]): CompiledQuery;
     compileDelete(table: string, primaryKey: string | string[], id: QueryValue | QueryValue[]): CompiledQuery;
     compileDeleteQuery(query: QueryStructure): CompiledQuery;

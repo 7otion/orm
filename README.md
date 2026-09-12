@@ -218,6 +218,47 @@ await User.query().where('status', 'inactive').delete(); // → count
 await User.query().where('is_player', 1).update({ is_player: 0 }); // → count
 ```
 
+### Bulk inserts
+
+`createMany()` writes rows in as few statements as the dialect's parameter limit
+allows, and returns how many were written:
+
+```ts
+await CharacterTag.createMany([
+	{ character_ref: 'alice', tag: 'hero' },
+	{ character_ref: 'alice', tag: 'mage' },
+]); // → 2
+```
+
+It fills, stamps timestamps and applies casts per row exactly as `create()`
+does. No models come back: a multi-row INSERT reports only the last generated
+key, so rows with a database-generated id have nothing reliable to carry.
+
+Rows are grouped by the columns they set, one statement per group, so a row that
+omits a column keeps that column's database default instead of being bound
+`NULL`.
+
+### Bulk updates from rows
+
+`updateMany()` gives each row its own values in a single statement, matching on
+the primary key unless you name another column:
+
+```ts
+await Fragment.updateMany([
+	{ id: 3, sort: 0 },
+	{ id: 7, sort: 1 },
+]); // → rows matched
+
+await FragmentSchema.updateMany([{ ref: 'appearance', sort: 0 }], 'ref');
+```
+
+A column a row omits is left as it is, so rows need not carry the same shape.
+`updated_at` is stamped once for the statement, and timestamp columns supplied by
+the caller are dropped — as with `QueryBuilder.update()`.
+
+Use this when the values differ per row; when one value applies to everything,
+`Model.query().where(…).update({ … })` is the smaller statement.
+
 ### Mass assignment
 
 `create()` and `fill()` respect `fillable` / `guarded` and never write

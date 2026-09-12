@@ -106,6 +106,10 @@ export declare abstract class Model<T extends Model<T>> {
      * `Model<any>` and the column check erases itself.
      */
     static create<T extends Model<T>>(this: ModelStatic<T>, data: NoInfer<Patch<T>>): Promise<T>;
+    /** How many rows were written; a multi-row INSERT yields no per-row keys. */
+    static createMany<T extends Model<T>>(this: ModelStatic<T>, rows: NoInfer<Patch<T>>[]): Promise<number>;
+    /** Rows matched, each supplying its own values; keyed by the primary key. */
+    static updateMany<T extends Model<T>>(this: ModelStatic<T>, rows: NoInfer<Patch<T>>[], keyBy?: string | string[]): Promise<number>;
     protected static hasOne<C extends ModelStatic<any>>(related: C | (() => C), foreignKey?: string, localKey?: string): HasOne<InstanceType<C>, C>;
     protected static hasMany<C extends ModelStatic<any>>(related: C | (() => C), foreignKey?: string, localKey?: string): HasMany<InstanceType<C>, C>;
     protected static belongsTo<C extends ModelStatic<any>>(related: C | (() => C), foreignKey?: string, localKey?: string): BelongsTo<InstanceType<C>, C>;

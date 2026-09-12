@@ -1,5 +1,6 @@
 /** Active Record base class. */
 
+import { BulkWriter } from './bulk-writer';
 import { QueryBuilder } from './query-builder';
 import { HasOne } from './relationships/hasOne';
 import { HasMany } from './relationships/hasMany';
@@ -424,6 +425,23 @@ export abstract class Model<T extends Model<T>> {
 
 		await model.save();
 		return model;
+	}
+
+	/** How many rows were written; a multi-row INSERT yields no per-row keys. */
+	static async createMany<T extends Model<T>>(
+		this: ModelStatic<T>,
+		rows: NoInfer<Patch<T>>[],
+	): Promise<number> {
+		return new BulkWriter(this).insert(rows);
+	}
+
+	/** Rows matched, each supplying its own values; keyed by the primary key. */
+	static async updateMany<T extends Model<T>>(
+		this: ModelStatic<T>,
+		rows: NoInfer<Patch<T>>[],
+		keyBy?: string | string[],
+	): Promise<number> {
+		return new BulkWriter(this).update(rows, keyBy);
 	}
 
 	protected static hasOne<C extends ModelStatic<any>>(

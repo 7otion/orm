@@ -13,6 +13,26 @@ export interface SqlDialect {
 		data: Record<string, QueryValue>,
 	): CompiledQuery;
 
+	/** Every row must carry the same columns; the caller chunks to the limit. */
+	compileInsertMany(
+		table: string,
+		rows: Record<string, QueryValue>[],
+	): CompiledQuery;
+
+	/**
+	 * Each row supplies its own values, matched on `keyColumns`. `set` holds
+	 * columns taking one value across every row.
+	 */
+	compileUpdateMany(
+		table: string,
+		rows: Record<string, QueryValue>[],
+		keyColumns: string[],
+		set: Record<string, QueryValue>,
+	): CompiledQuery;
+
+	/** Bound parameters one statement may carry. Unset means no limit. */
+	readonly maxBindParameters?: number;
+
 	compileUpdate(
 		table: string,
 		data: Record<string, QueryValue>,

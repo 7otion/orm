@@ -168,6 +168,8 @@ export class CharacterTag extends Model<CharacterTag> {
 
 	character_ref!: string;
 	tag!: string;
+	/** A non-key column, so a composite-key row has something to update. */
+	sort!: number;
 }
 
 export class CharacterAsset extends Model<CharacterAsset> {

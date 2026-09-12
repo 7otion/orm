@@ -39,8 +39,9 @@ CREATE TABLE characters (
 );
 
 CREATE TABLE character_tags (
-	character_ref   TEXT NOT NULL,
-	tag             TEXT NOT NULL,
+	character_ref   TEXT    NOT NULL,
+	tag             TEXT    NOT NULL,
+	sort            INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (character_ref, tag)
 );
 

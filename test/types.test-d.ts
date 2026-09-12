@@ -489,6 +489,28 @@ export async function _writeSurfacesAreTyped() {
 	// second inference site and `create` degrades to accepting anything.
 	const created = await Line.create({ ref: 'x' });
 	expectType<Equal<typeof created, Line>>();
+
+	// createMany reports a count, and checks its rows the way create does.
+	const written = await Line.createMany([
+		{ ref: 'intro/c', passage_ref: 'intro', kind: 'say' },
+	]);
+	expectType<Equal<typeof written, number>>();
+
+	// @ts-expect-error - computed property, not a column.
+	await Line.createMany([{ summary: 'x' }]);
+	// @ts-expect-error - wrong type for a real column.
+	await Line.createMany([{ text: 12345 }]);
+	// @ts-expect-error - a single row is not a list.
+	await Line.createMany({ ref: 'x' });
+
+	// updateMany reports a count and checks its rows the same way.
+	const touched = await Line.updateMany([{ ref: 'intro/a', text: 'hi' }]);
+	expectType<Equal<typeof touched, number>>();
+
+	// @ts-expect-error - computed property, not a column.
+	await Line.updateMany([{ summary: 'x' }]);
+	// @ts-expect-error - wrong type for a real column.
+	await Line.updateMany([{ text: 12345 }]);
 }
 
 /* ── The relationship registry: names survive, related types do not ─────── */
