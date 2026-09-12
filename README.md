@@ -120,6 +120,17 @@ await User.query()
 // WHERE "status" = ? AND ("age" > ? OR "role" = ?)
 ```
 
+`whereNot` and `orWhereNot` negate what follows — a single condition, or a whole
+group when given a callback:
+
+```ts
+User.query().where('status', 'active').whereNot('role', 'admin');
+// WHERE "status" = ? AND NOT "role" = ?
+
+User.query().whereNot(q => q.where('status', 'active').where('age', '>', 65));
+// WHERE NOT ("status" = ? AND "age" > ?)
+```
+
 A flat chain is emitted as written, and SQL binds `AND` tighter than `OR`:
 
 ```ts

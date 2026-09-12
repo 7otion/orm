@@ -319,6 +319,28 @@ export function _orWhereIsCheckedLikeWhere() {
 	q.orWhereIn('sort', ['a']);
 }
 
+export function _whereNotIsCheckedLikeWhere() {
+	const q = Passage.query();
+	type Q = QueryBuilder<Passage, PassageRelations>;
+
+	expectType<Equal<ReturnType<typeof q.whereNot>, Q>>();
+	expectType<Equal<ReturnType<typeof q.orWhereNot>, Q>>();
+
+	q.whereNot('status', 'draft');
+	q.whereNot('sort', '>', 1);
+	q.orWhereNot('status', 'draft');
+	q.whereNot(group => group.where('status', 'draft'));
+
+	// @ts-expect-error - 'nope' is not a column of Passage.
+	q.whereNot('nope', 'draft');
+	// @ts-expect-error - 'sort' is a number.
+	q.whereNot('sort', 'not-a-number');
+	// @ts-expect-error - '>>>' is not a WhereOperator.
+	q.orWhereNot('sort', '>>>', 1);
+	// @ts-expect-error - the negated group's builder is checked too.
+	q.whereNot(group => group.where('nope', 1));
+}
+
 export function _groupCallbacksReceiveATypedBuilder() {
 	Passage.query().where(group => {
 		expectType<

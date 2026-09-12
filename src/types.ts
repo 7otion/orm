@@ -27,6 +27,7 @@ export interface WhereCondition {
 	type: 'basic' | 'raw' | 'group';
 	/** How this joins to the condition before it; the first in a list has none. */
 	connector?: 'AND' | 'OR';
+	negated?: boolean;
 	column?: string;
 	operator?: WhereOperator;
 	value?: WhereValue;

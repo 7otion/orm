@@ -255,7 +255,7 @@ export class SQLiteDialect implements SqlDialect {
 	): string {
 		return conditions
 			.map((condition, index) => {
-				const clause = this.compileCondition(condition, bindings);
+				const clause = `${condition.negated ? 'NOT ' : ''}${this.compileCondition(condition, bindings)}`;
 				if (index === 0) return clause;
 				return `${condition.connector ?? 'AND'} ${clause}`;
 			})

@@ -81,14 +81,7 @@ export class QueryBuilder<
 		operatorOrValue?: unknown,
 		value?: unknown,
 	): this {
-		if (typeof columnOrGroup === 'function') {
-			return this.pushGroup(columnOrGroup);
-		}
-
-		this.query.wheres.push(
-			this.basicCondition(columnOrGroup, operatorOrValue, value),
-		);
-		return this;
+		return this.addWhere(columnOrGroup, operatorOrValue, value);
 	}
 
 	orWhere<K extends ColumnRef<T>>(column: K, value: ValueFor<T, K>): this;
@@ -103,13 +96,62 @@ export class QueryBuilder<
 		operatorOrValue?: unknown,
 		value?: unknown,
 	): this {
+		return this.addWhere(columnOrGroup, operatorOrValue, value, 'OR');
+	}
+
+	whereNot<K extends ColumnRef<T>>(column: K, value: ValueFor<T, K>): this;
+	whereNot<K extends ColumnRef<T>, Op extends WhereOperator>(
+		column: K,
+		operator: Op,
+		value: ValueForOperator<T, K, Op>,
+	): this;
+	/** A callback negates the whole group: `NOT (a AND b)`. */
+	whereNot(group: (query: QueryBuilder<T, TRelations>) => void): this;
+	whereNot(
+		columnOrGroup: string | ((query: QueryBuilder<T, TRelations>) => void),
+		operatorOrValue?: unknown,
+		value?: unknown,
+	): this {
+		return this.addWhere(
+			columnOrGroup,
+			operatorOrValue,
+			value,
+			undefined,
+			true,
+		);
+	}
+
+	orWhereNot<K extends ColumnRef<T>>(column: K, value: ValueFor<T, K>): this;
+	orWhereNot<K extends ColumnRef<T>, Op extends WhereOperator>(
+		column: K,
+		operator: Op,
+		value: ValueForOperator<T, K, Op>,
+	): this;
+	orWhereNot(group: (query: QueryBuilder<T, TRelations>) => void): this;
+	orWhereNot(
+		columnOrGroup: string | ((query: QueryBuilder<T, TRelations>) => void),
+		operatorOrValue?: unknown,
+		value?: unknown,
+	): this {
+		return this.addWhere(columnOrGroup, operatorOrValue, value, 'OR', true);
+	}
+
+	/** The one dispatch every where-variant goes through. */
+	private addWhere(
+		columnOrGroup: string | ((query: QueryBuilder<T, TRelations>) => void),
+		operatorOrValue: unknown,
+		value: unknown,
+		connector?: 'OR',
+		negated?: true,
+	): this {
 		if (typeof columnOrGroup === 'function') {
-			return this.pushGroup(columnOrGroup, 'OR');
+			return this.pushGroup(columnOrGroup, connector, negated);
 		}
 
 		this.query.wheres.push({
 			...this.basicCondition(columnOrGroup, operatorOrValue, value),
-			connector: 'OR',
+			connector,
+			negated,
 		});
 		return this;
 	}
@@ -155,6 +197,7 @@ export class QueryBuilder<
 	private pushGroup(
 		build: (query: QueryBuilder<T, TRelations>) => void,
 		connector?: 'OR',
+		negated?: true,
 	): this {
 		const nested = new QueryBuilder<T, TRelations>(
 			this.modelClass,
@@ -164,7 +207,12 @@ export class QueryBuilder<
 
 		const conditions = nested.query.wheres;
 		if (conditions.length > 0) {
-			this.query.wheres.push({ type: 'group', connector, conditions });
+			this.query.wheres.push({
+				type: 'group',
+				connector,
+				negated,
+				conditions,
+			});
 		}
 		return this;
 	}

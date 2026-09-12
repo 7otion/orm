@@ -38,6 +38,15 @@ export declare class QueryBuilder<T extends Model<T>, TRelations = AnyRelations,
     orWhere<K extends ColumnRef<T>>(column: K, value: ValueFor<T, K>): this;
     orWhere<K extends ColumnRef<T>, Op extends WhereOperator>(column: K, operator: Op, value: ValueForOperator<T, K, Op>): this;
     orWhere(group: (query: QueryBuilder<T, TRelations>) => void): this;
+    whereNot<K extends ColumnRef<T>>(column: K, value: ValueFor<T, K>): this;
+    whereNot<K extends ColumnRef<T>, Op extends WhereOperator>(column: K, operator: Op, value: ValueForOperator<T, K, Op>): this;
+    /** A callback negates the whole group: `NOT (a AND b)`. */
+    whereNot(group: (query: QueryBuilder<T, TRelations>) => void): this;
+    orWhereNot<K extends ColumnRef<T>>(column: K, value: ValueFor<T, K>): this;
+    orWhereNot<K extends ColumnRef<T>, Op extends WhereOperator>(column: K, operator: Op, value: ValueForOperator<T, K, Op>): this;
+    orWhereNot(group: (query: QueryBuilder<T, TRelations>) => void): this;
+    /** The one dispatch every where-variant goes through. */
+    private addWhere;
     whereRaw(sql: string, bindings?: QueryValue[]): this;
     orWhereRaw(sql: string, bindings?: QueryValue[]): this;
     whereIn<K extends ColumnRef<T>>(column: K, values: ValueFor<T, K>[]): this;

@@ -231,6 +231,62 @@ describe('or and nested groups', () => {
 		);
 	});
 
+	test('whereNot negates a single condition', async () => {
+		const { adapter } = await freshDatabase();
+		await seedUsers();
+
+		adapter.clearLog();
+		const rows = await User.query()
+			.where('status', 'active')
+			.whereNot('name', 'Bob')
+			.get();
+
+		const select = adapter.log.find(e => e.kind === 'query')!;
+		expect(select.sql).toContain('"status" = ? AND NOT "name" = ?');
+		expect(rows.map(r => r.name)).toEqual(['Ann']);
+	});
+
+	test('a leading whereNot carries no connector', async () => {
+		const { adapter } = await freshDatabase();
+		await seedUsers();
+
+		adapter.clearLog();
+		const rows = await User.query().whereNot('status', 'active').get();
+
+		const select = adapter.log.find(e => e.kind === 'query')!;
+		expect(select.sql).toContain('WHERE NOT "status" = ?');
+		// NULL never equals a value, so Dee is excluded by NOT as well.
+		expect(rows.map(r => r.name)).toEqual(['Cid']);
+	});
+
+	test('orWhereNot joins with OR NOT', async () => {
+		const { adapter } = await freshDatabase();
+		await seedUsers();
+
+		adapter.clearLog();
+		await User.query()
+			.where('name', 'Ann')
+			.orWhereNot('age', '>', 25)
+			.get();
+
+		const select = adapter.log.find(e => e.kind === 'query')!;
+		expect(select.sql).toContain('"name" = ? OR NOT "age" > ?');
+	});
+
+	test('a callback negates the whole group', async () => {
+		const { adapter } = await freshDatabase();
+		await seedUsers();
+
+		adapter.clearLog();
+		const rows = await User.query()
+			.whereNot(q => q.where('status', 'active').where('age', '>', 25))
+			.get();
+
+		const select = adapter.log.find(e => e.kind === 'query')!;
+		expect(select.sql).toContain('WHERE NOT ("status" = ? AND "age" > ?)');
+		expect(rows.map(r => r.name).sort()).toEqual(['Bob', 'Cid']);
+	});
+
 	test('groups compile in deletes, updates and counts too', async () => {
 		await freshDatabase();
 		await seedUsers();
