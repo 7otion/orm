@@ -6,6 +6,16 @@ import type { DatabaseRow, QueryValue } from '../types';
 import { ModelState } from './model-state.mixin';
 
 export class RecordPersistenceMixin extends ModelState {
+	/**
+	 * The value the row is stored under. A reassigned primary key sits in
+	 * `_attributes` while the row still carries the original.
+	 */
+	private storedKey(key: string): QueryValue {
+		return key in this._original
+			? this._original[key]
+			: this._attributes[key];
+	}
+
 	async save(): Promise<this> {
 		this.generateSlugIfNeeded();
 		if (!this._exists) {
@@ -103,32 +113,18 @@ export class RecordPersistenceMixin extends ModelState {
 				data[field] = this._attributes[field];
 			}
 
-			if (timestamps.columns) {
-				const now = timestamps.now();
+			const now = timestamps.columns ? timestamps.now() : null;
+			if (timestamps.columns && now) {
 				data[timestamps.columns.updated_at] = now;
-				this._attributes[timestamps.columns.updated_at] = now;
-				// Set once, at insert; restore whatever the row was loaded with.
-				if (timestamps.columns.created_at in this._original) {
-					this._attributes[timestamps.columns.created_at] =
-						this._original[timestamps.columns.created_at];
-				}
 			}
 
-			// Locate the row by its ORIGINAL key. A reassigned primary key
-			// already sits in _attributes, so keying off that would write
-			// nothing and report success.
 			const primaryKey = config.primaryKey!;
-			const keyOf = (key: string): QueryValue =>
-				key in this._original
-					? this._original[key]
-					: this._attributes[key];
-
 			let id: QueryValue | QueryValue[];
 
 			if (Array.isArray(primaryKey)) {
-				id = primaryKey.map(keyOf);
+				id = primaryKey.map(key => this.storedKey(key));
 			} else {
-				id = keyOf(primaryKey);
+				id = this.storedKey(primaryKey);
 			}
 
 			const compiled = dialect.compileUpdate(
@@ -149,6 +145,15 @@ export class RecordPersistenceMixin extends ModelState {
 						`${Array.isArray(primaryKey) ? primaryKey.join('/') : primaryKey} = ` +
 						`${Array.isArray(id) ? id.join('/') : String(id)}.`,
 				);
+			}
+
+			if (timestamps.columns && now) {
+				this._attributes[timestamps.columns.updated_at] = now;
+				// Set once, at insert; restore whatever the row was loaded with.
+				if (timestamps.columns.created_at in this._original) {
+					this._attributes[timestamps.columns.created_at] =
+						this._original[timestamps.columns.created_at];
+				}
 			}
 
 			this._original = this.getCaster().snapshot(this._attributes);
@@ -178,9 +183,9 @@ export class RecordPersistenceMixin extends ModelState {
 			let id: QueryValue | QueryValue[];
 
 			if (Array.isArray(primaryKey)) {
-				id = primaryKey.map(key => this._attributes[key]);
+				id = primaryKey.map(key => this.storedKey(key));
 			} else {
-				id = this._attributes[primaryKey];
+				id = this.storedKey(primaryKey);
 			}
 
 			const compiled = dialect.compileDelete(

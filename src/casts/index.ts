@@ -41,13 +41,17 @@ export class Caster {
 	/** Attributes -> values a statement can bind. */
 	toDatabaseValues(values: DatabaseRow): DatabaseRow {
 		const out: DatabaseRow = { ...values };
-		for (const [column, cast] of Object.entries(this.casts)) {
-			if (!(column in out)) continue;
-			const value = out[column];
-			if (value === null || value === undefined) continue;
-			out[column] = cast.toDatabase(value, column);
+		for (const column of Object.keys(out)) {
+			out[column] = this.toStored(column, out[column]);
 		}
 		return out;
+	}
+
+	/** One value in its stored shape. Uncast columns and nullish values pass through. */
+	toStored(column: string, value: unknown): unknown {
+		const cast = this.casts[column];
+		if (!cast || value === null || value === undefined) return value;
+		return cast.toDatabase(value, column);
 	}
 
 	/**

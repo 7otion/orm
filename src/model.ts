@@ -15,6 +15,7 @@ import { RelationshipLoaderMixin } from './mixins/relationship-loader.mixin';
 
 import type { ModelConfig, QueryValue } from './types';
 import {
+	assertIdentifier,
 	assertWritableColumn,
 	dynamicWhere,
 	findDeclaration,
@@ -31,7 +32,6 @@ import { Timestamps } from './timestamps';
 export interface ModelConstructor<TModel extends Model<TModel>> {
 	new (): TModel;
 	config: ModelConfig;
-	_cachedTableName?: string;
 	getTableName(): string;
 	query(): QueryBuilder<TModel>;
 	find(id: QueryValue): Promise<TModel | null>;
@@ -292,31 +292,11 @@ export abstract class Model<T extends Model<T>> {
 		const constructor = this.constructor as typeof Model;
 		const config = constructor.config;
 
-		let tableName = config.table;
-		if (!tableName) {
-			tableName = this.deriveTableName(constructor.name);
-		}
-
 		return {
-			table: tableName,
+			table: constructor.getTableName(),
 			primaryKey: config.primaryKey || 'id',
 			timestamps: config.timestamps || false,
 		};
-	}
-
-	private deriveTableName(className: string): string {
-		const snakeCase = className
-			.replace(/([A-Z])/g, '_$1')
-			.toLowerCase()
-			.replace(/^_/, '');
-
-		if (snakeCase.endsWith('y')) {
-			return snakeCase.slice(0, -1) + 'ies';
-		} else if (snakeCase.endsWith('s')) {
-			return snakeCase + 'es';
-		} else {
-			return snakeCase + 's';
-		}
 	}
 
 	/** @internal Public for the mixins' benefit. */
@@ -329,29 +309,31 @@ export abstract class Model<T extends Model<T>> {
 		return (this.constructor as typeof Model).casts;
 	}
 
+	private static _tableNameCache = new WeakMap<typeof Model, string>();
+
+	/** Interpolated into SQL, not bound, so it is validated like any identifier. */
 	static getTableName(): string {
-		const ModelClass = this as unknown as ModelConstructor<any>;
-		if (ModelClass.config.table) {
-			return ModelClass.config.table;
+		// Per class, so a subclass never inherits its parent's derived name.
+		let tableName = Model._tableNameCache.get(this);
+		if (tableName === undefined) {
+			tableName = assertIdentifier(
+				this.config.table ?? this.deriveTableName(),
+				'table',
+			);
+			Model._tableNameCache.set(this, tableName);
 		}
+		return tableName;
+	}
 
-		if (!ModelClass._cachedTableName) {
-			const className = this.name || 'Model';
-			const snakeCase = className
-				.replace(/([A-Z])/g, '_$1')
-				.toLowerCase()
-				.replace(/^_/, '');
+	private static deriveTableName(): string {
+		const snakeCase = (this.name || 'Model')
+			.replace(/([A-Z])/g, '_$1')
+			.toLowerCase()
+			.replace(/^_/, '');
 
-			if (snakeCase.endsWith('y')) {
-				ModelClass._cachedTableName = snakeCase.slice(0, -1) + 'ies';
-			} else if (snakeCase.endsWith('s')) {
-				ModelClass._cachedTableName = snakeCase + 'es';
-			} else {
-				ModelClass._cachedTableName = snakeCase + 's';
-			}
-		}
-
-		return ModelClass._cachedTableName;
+		if (snakeCase.endsWith('y')) return snakeCase.slice(0, -1) + 'ies';
+		if (snakeCase.endsWith('s')) return snakeCase + 'es';
+		return snakeCase + 's';
 	}
 
 	static generateSlug(string: string): string {

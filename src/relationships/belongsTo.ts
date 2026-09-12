@@ -3,7 +3,12 @@
 import { Relationship } from './relationship';
 import { QueryBuilder } from '../query-builder';
 import type { Model } from '../model';
-import { dynamicWhere, getAttribute, setRelation } from '../internal';
+import {
+	dynamicWhere,
+	getAttribute,
+	isRelationLoaded,
+	setRelation,
+} from '../internal';
 
 export class BelongsTo<
 	T extends Model<T>,
@@ -50,6 +55,8 @@ export class BelongsTo<
 		models: Model<any>[],
 		relationName: string,
 	): Promise<void> {
+		if (models.every(m => isRelationLoaded(m, relationName))) return;
+
 		const foreignValues = models.map(model =>
 			getAttribute(model, this.foreignKey),
 		);
@@ -57,6 +64,7 @@ export class BelongsTo<
 		const hasNonNullValue = foreignValues.some(val => val != null);
 		if (!hasNonNullValue) {
 			for (const model of models) {
+				if (isRelationLoaded(model, relationName)) continue;
 				setRelation(model, relationName, null);
 			}
 			return;
@@ -77,7 +85,9 @@ export class BelongsTo<
 			relatedMap.set(localValue, related);
 		}
 
+		// Partial-load guard, as in HasOne.
 		for (const model of models) {
+			if (isRelationLoaded(model, relationName)) continue;
 			const foreignValue = getAttribute(model, this.foreignKey);
 			const related = relatedMap.get(foreignValue) || null;
 			setRelation(model, relationName, related);

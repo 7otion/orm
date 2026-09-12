@@ -3,8 +3,14 @@
 import { Relationship } from './relationship';
 import { QueryBuilder } from '../query-builder';
 import type { Model, ModelClassRef, ModelStatic } from '../model';
-import { ORM } from '../orm';
-import { dynamicWhere, getAttribute, setRelation } from '../internal';
+import type { DatabaseRow } from '../types';
+import {
+	assertIdentifier,
+	dynamicWhere,
+	getAttribute,
+	isRelationLoaded,
+	setRelation,
+} from '../internal';
 
 export class BelongsToMany<
 	T extends Model<T>,
@@ -27,7 +33,7 @@ export class BelongsToMany<
 	) {
 		super(parent, related, foreignPivotKey, parentKey);
 
-		this.pivotTable = pivotTable;
+		this.pivotTable = assertIdentifier(pivotTable, 'pivot table');
 
 		if (!foreignPivotKey) {
 			const parentName = this.parentConstructor.name
@@ -88,6 +94,8 @@ export class BelongsToMany<
 		models: Model<any>[],
 		relationName: string,
 	): Promise<void> {
+		if (models.every(m => isRelationLoaded(m, relationName))) return;
+
 		const parentValues = models.map(model =>
 			getAttribute(model, this.parentKey),
 		);
@@ -95,6 +103,7 @@ export class BelongsToMany<
 		const hasNonNullValue = parentValues.some(val => val != null);
 		if (!hasNonNullValue) {
 			for (const model of models) {
+				if (isRelationLoaded(model, relationName)) continue;
 				setRelation(model, relationName, []);
 			}
 			return;
@@ -104,30 +113,16 @@ export class BelongsToMany<
 			...new Set(parentValues.filter(v => v != null)),
 		];
 
-		const orm = ORM.getInstance();
-		const dialect = orm.getDialect();
-		const adapter = orm.getAdapter();
-
-		const pivotQuery = dialect.compileSelect({
-			table: this.pivotTable,
-			wheres: [
-				{
-					type: 'basic',
-					column: this.foreignPivotKey,
-					operator: 'IN',
-					value: uniqueParentValues,
-				},
-			],
-			orders: [],
-		});
-
-		const pivotRows = await adapter.query(
-			pivotQuery.sql,
-			pivotQuery.bindings,
-		);
+		// Through the builder, so the pivot's names are identifier-checked too.
+		const pivotRows = await dynamicWhere(
+			new QueryBuilder<T>(this.related, this.pivotTable),
+		)
+			.where(this.foreignPivotKey, 'IN', uniqueParentValues)
+			.aggregate<DatabaseRow>();
 
 		if (pivotRows.length === 0) {
 			for (const model of models) {
+				if (isRelationLoaded(model, relationName)) continue;
 				setRelation(model, relationName, []);
 			}
 			return;
@@ -164,7 +159,9 @@ export class BelongsToMany<
 			}
 		}
 
+		// Partial-load guard, as in HasMany.
 		for (const model of models) {
+			if (isRelationLoaded(model, relationName)) continue;
 			const parentValue = getAttribute(model, this.parentKey);
 			const related = parentRelatedMap.get(parentValue) || [];
 			setRelation(model, relationName, related);

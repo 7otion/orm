@@ -2,7 +2,12 @@
 
 import type { Model } from '../model';
 import type { ModelConstructor } from '../model';
-import { dynamicWhere, getAttribute, setRelation } from '../internal';
+import {
+	dynamicWhere,
+	getAttribute,
+	isRelationLoaded,
+	setRelation,
+} from '../internal';
 
 export interface MorphToConfig<T extends Model<T>> {
 	discriminatorField: string;
@@ -46,9 +51,14 @@ export class MorphTo<T extends Model<T>> {
 		models: Model<any>[],
 		relationName: string,
 	): Promise<void> {
+		if (models.every(m => isRelationLoaded(m, relationName))) return;
+
 		const grouped = new Map<string, Model<any>[]>();
 
+		// Partial-load guard, as in MorphMany.
 		for (const model of models) {
+			if (isRelationLoaded(model, relationName)) continue;
+
 			const discriminatorValue = getAttribute(
 				model,
 				this.config.discriminatorField,

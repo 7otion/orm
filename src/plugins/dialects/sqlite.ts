@@ -10,9 +10,9 @@ export class SQLiteDialect implements SqlDialect {
 	/**
 	 * SQLite has no boolean type, and a driver handed a raw `true` will not
 	 * necessarily store 0/1 — tauri-plugin-sql, for one, binds it as the JSON
-	 * text `"true"`, which no `= 1` comparison ever matches. Normalising here
-	 * catches every value the builder emits, including `where` operands that
-	 * never passed through a model's casts.
+	 * text `"true"`, which no `= 1` comparison ever matches. The last step
+	 * before the driver, so it also covers raw bindings, which carry no column
+	 * name for a cast to key off.
 	 */
 	private compiled(sql: string, bindings: QueryValue[]): CompiledQuery {
 		return {
@@ -68,9 +68,10 @@ export class SQLiteDialect implements SqlDialect {
 			sql += orderClauses.join(', ');
 		}
 
-		if (query.limitValue !== undefined) {
+		// SQLite's grammar is LIMIT expr [OFFSET expr]; -1 is its no-limit sentinel.
+		if (query.limitValue !== undefined || query.offsetValue !== undefined) {
 			sql += ' LIMIT ?';
-			bindings.push(query.limitValue);
+			bindings.push(query.limitValue ?? -1);
 		}
 
 		if (query.offsetValue !== undefined) {

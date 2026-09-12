@@ -39,11 +39,14 @@ export class RelationshipLoaderMixin extends ModelState {
 			throw pending[key];
 		}
 
-		const promise = this.loadRelationship(relationshipName).then(() => {
+		// `finally`, so a failed load is retried rather than rethrown forever.
+		const promise = this.loadRelationship(relationshipName).finally(() => {
 			delete pending[key];
 		});
 
 		pending[key] = promise;
+		// A thrown promise no one awaits must not surface as an unhandled rejection.
+		promise.catch(() => {});
 
 		console.warn(
 			`Relationship '${relationshipName}' is being loaded asynchronously. This may cause a delay in rendering. Consider preloading this relationship or using the load() method outside of React components.`,
@@ -71,10 +74,8 @@ export class RelationshipLoaderMixin extends ModelState {
 
 		try {
 			await promise;
+		} finally {
 			delete pending[key];
-		} catch (error) {
-			delete pending[key];
-			throw error;
 		}
 	}
 

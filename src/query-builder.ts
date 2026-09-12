@@ -69,7 +69,12 @@ export class QueryBuilder<
 		operatorOrValue?: unknown,
 		value?: unknown,
 	): this {
-		return this.addWhere(columnOrGroup, operatorOrValue, value);
+		return this.addWhere(
+			arguments.length,
+			columnOrGroup,
+			operatorOrValue,
+			value,
+		);
 	}
 
 	orWhere<K extends ColumnRef<T>>(column: K, value: ValueFor<T, K>): this;
@@ -84,7 +89,13 @@ export class QueryBuilder<
 		operatorOrValue?: unknown,
 		value?: unknown,
 	): this {
-		return this.addWhere(columnOrGroup, operatorOrValue, value, 'OR');
+		return this.addWhere(
+			arguments.length,
+			columnOrGroup,
+			operatorOrValue,
+			value,
+			'OR',
+		);
 	}
 
 	whereNot<K extends ColumnRef<T>>(column: K, value: ValueFor<T, K>): this;
@@ -101,6 +112,7 @@ export class QueryBuilder<
 		value?: unknown,
 	): this {
 		return this.addWhere(
+			arguments.length,
 			columnOrGroup,
 			operatorOrValue,
 			value,
@@ -121,11 +133,19 @@ export class QueryBuilder<
 		operatorOrValue?: unknown,
 		value?: unknown,
 	): this {
-		return this.addWhere(columnOrGroup, operatorOrValue, value, 'OR', true);
+		return this.addWhere(
+			arguments.length,
+			columnOrGroup,
+			operatorOrValue,
+			value,
+			'OR',
+			true,
+		);
 	}
 
 	/** The one dispatch every where-variant goes through. */
 	private addWhere(
+		argc: number,
 		columnOrGroup: string | ((query: QueryBuilder<T, TRelations>) => void),
 		operatorOrValue: unknown,
 		value: unknown,
@@ -137,7 +157,7 @@ export class QueryBuilder<
 		}
 
 		this.query.wheres.push({
-			...this.basicCondition(columnOrGroup, operatorOrValue, value),
+			...this.basicCondition(argc, columnOrGroup, operatorOrValue, value),
 			connector,
 			negated,
 		});
@@ -205,7 +225,25 @@ export class QueryBuilder<
 		return this;
 	}
 
+	/**
+	 * Caller values reach the driver in the column's stored shape, as writes do.
+	 * A qualified name belongs to another table, whose casts are not this
+	 * model's to apply.
+	 */
+	private stored(column: string, value: WhereValue): WhereValue {
+		if (column.includes('.')) return value;
+
+		const caster = this.modelClass.casts;
+		return Array.isArray(value)
+			? (value.map(
+					item => caster.toStored(column, item) as QueryValue,
+				) as WhereValue)
+			: (caster.toStored(column, value) as WhereValue);
+	}
+
+	// Arity, not `value === undefined`: a three-argument call may pass one.
 	private basicCondition(
+		argc: number,
 		column: string,
 		operatorOrValue: unknown,
 		value: unknown,
@@ -213,7 +251,7 @@ export class QueryBuilder<
 		let operator: WhereOperator;
 		let actualValue: WhereValue;
 
-		if (value === undefined) {
+		if (argc < 3) {
 			operator = '=';
 			actualValue = operatorOrValue as WhereValue;
 		} else {
@@ -225,7 +263,7 @@ export class QueryBuilder<
 			type: 'basic',
 			column: assertIdentifier(column, 'column'),
 			operator,
-			value: actualValue,
+			value: this.stored(column, actualValue),
 		};
 	}
 
@@ -234,7 +272,7 @@ export class QueryBuilder<
 			type: 'basic',
 			column: assertIdentifier(column, 'column'),
 			operator: 'IN',
-			value: values as WhereValue,
+			value: this.stored(column, values as WhereValue),
 		};
 	}
 
@@ -338,7 +376,12 @@ export class QueryBuilder<
 	): this;
 	having(column: string, operatorOrValue?: unknown, value?: unknown): this {
 		(this.query.havings ??= []).push(
-			this.basicCondition(column, operatorOrValue, value),
+			this.basicCondition(
+				arguments.length,
+				column,
+				operatorOrValue,
+				value,
+			),
 		);
 		return this;
 	}
@@ -390,13 +433,17 @@ export class QueryBuilder<
 		return this;
 	}
 
-	async get(this: QueryBuilder<T, TRelations, false>): Promise<T[]> {
-		// Reachable only through a cast, or from JavaScript.
+	/** Reachable only through a cast, or from JavaScript. */
+	private assertUngrouped(method: string): void {
 		if (this.query.groups?.length) {
 			throw new Error(
-				'A grouped query returns rows, not models — use aggregate().',
+				`${method}() is unavailable on a grouped query, which returns rows, not models — use aggregate().`,
 			);
 		}
+	}
+
+	async get(this: QueryBuilder<T, TRelations, false>): Promise<T[]> {
+		this.assertUngrouped('get');
 
 		if (this.relationshipConstraint) {
 			this.relationshipConstraint(this);
@@ -489,6 +536,8 @@ export class QueryBuilder<
 
 	/** Deletes matching rows in one queued statement, returning the count. */
 	async delete(this: QueryBuilder<T, TRelations, false>): Promise<number> {
+		this.assertUngrouped('delete');
+
 		if (this.relationshipConstraint) {
 			this.relationshipConstraint(this);
 		}
@@ -514,6 +563,8 @@ export class QueryBuilder<
 		this: QueryBuilder<T, TRelations, false>,
 		data: Patch<T>,
 	): Promise<number> {
+		this.assertUngrouped('update');
+
 		if (this.relationshipConstraint) {
 			this.relationshipConstraint(this);
 		}

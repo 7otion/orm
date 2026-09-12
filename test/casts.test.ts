@@ -12,7 +12,7 @@ import { Model } from '../src/model';
 import { BooleanCast, Caster, DateCast, type ColumnCast } from '../src/casts';
 import { Timestamps } from '../src/timestamps';
 import { SQLiteDialect } from '../src/plugins/dialects/sqlite';
-import { Passage } from './helpers/models';
+import { Passage, ProjectFile } from './helpers/models';
 import { freshDatabase } from './helpers/setup';
 
 class Casted extends Model<Casted> {
@@ -861,5 +861,116 @@ describe('dialect normalises stray booleans', () => {
 		// only two values appear.
 		expect(compiled.sql).toContain('IS NULL');
 		expect(compiled.bindings).toEqual(['a', 0]);
+	});
+});
+
+describe('casts in where clauses', () => {
+	test('a date column matches the value it was written with', async () => {
+		await freshDatabase();
+		const file = await ProjectFile.create({
+			path: 'p',
+			name: 'n',
+			size: 1,
+			mime: 'm',
+			extension: 'e',
+			ctime: 1,
+			mtime: 1,
+		});
+
+		expect(
+			await ProjectFile.query()
+				.where('created_at', file.created_at)
+				.get(),
+		).toHaveLength(1);
+		expect(
+			await ProjectFile.query()
+				.where('created_at', '>=', file.created_at)
+				.get(),
+		).toHaveLength(1);
+		expect(
+			await ProjectFile.query()
+				.whereIn('created_at', [file.created_at])
+				.get(),
+		).toHaveLength(1);
+	});
+
+	test('a json column compares against its stored text', async () => {
+		await freshDatabase();
+
+		class Doc extends Model<Doc> {
+			static config = {
+				table: 'users',
+				timestamps: false,
+				casts: { status: 'json' },
+			} as const;
+
+			id!: number;
+			name!: string | null;
+			status!: Record<string, number>;
+
+			static readonly relationships = {};
+		}
+
+		await Doc.create({ name: 'a', status: { a: 1 } });
+
+		expect(await Doc.query().where('status', { a: 1 }).get()).toHaveLength(
+			1,
+		);
+	});
+
+	test('a qualified name is left alone', async () => {
+		await freshDatabase();
+		const due = new Date('2030-01-01T00:00:00Z');
+
+		const bare = ProjectFile.query();
+		bare.where('created_at', due);
+
+		const qualified = ProjectFile.query();
+		qualified.where('files.created_at', due as never);
+
+		expect(bare.getQuery().wheres[0]!.value).toBe(1893456000);
+		expect(qualified.getQuery().wheres[0]!.value as unknown).toBe(due);
+	});
+
+	test('uncast columns and IS NULL are untouched', async () => {
+		const { adapter } = await freshDatabase();
+		await ProjectFile.create({
+			path: 'p',
+			name: 'n',
+			size: 1,
+			mime: 'm',
+			extension: 'e',
+			ctime: 1,
+			mtime: 1,
+		});
+
+		adapter.clearLog();
+		await ProjectFile.query().where('name', 'n').get();
+		expect(adapter.log[0]!.params).toEqual(['n']);
+
+		adapter.clearLog();
+		await ProjectFile.query().where('name', 'IS', null).get();
+		expect(adapter.log[0]!.params).toEqual([]);
+	});
+
+	test('a nested group converts too', async () => {
+		const { adapter } = await freshDatabase();
+		const file = await ProjectFile.create({
+			path: 'p',
+			name: 'n',
+			size: 1,
+			mime: 'm',
+			extension: 'e',
+			ctime: 1,
+			mtime: 1,
+		});
+
+		adapter.clearLog();
+		const rows = await ProjectFile.query()
+			.where(q => q.where('created_at', file.created_at))
+			.get();
+
+		expect(rows).toHaveLength(1);
+		expect(typeof adapter.log[0]!.params[0]).toBe('number');
 	});
 });
