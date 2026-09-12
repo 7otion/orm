@@ -236,6 +236,23 @@ describe('eager loading', () => {
 		expect(notes[2]!.target).toBeNull();
 	});
 
+	test('a nested path through morphTo is refused by name', async () => {
+		await freshDatabase();
+		const user = await User.create({ name: 'Ann' });
+		await Note.create({
+			body: 'n',
+			target_kind: 'user',
+			target_id: user.id,
+		});
+
+		// Reachable only through a cast: RelationPath rejects it at compile time.
+		await expect(
+			Note.query()
+				.with('target.profile' as never)
+				.get(),
+		).rejects.toThrow(/polymorphic/);
+	});
+
 	test('deduplicates repeated foreign keys into one IN clause', async () => {
 		const { adapter } = await freshDatabase();
 

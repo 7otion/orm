@@ -13,12 +13,21 @@
  * fails. Deleting one silently weakens the suite, so they are load-bearing.
  */
 
+import { Model } from '../src/model';
 import { QueryBuilder } from '../src/query-builder';
 import type { ColumnKeys, Patch } from '../src/columns';
 
 import { HasMany } from '../src/relationships/hasMany';
+import type { LoadableRelation } from '../src/relationships/relationship';
 
-import { Category, Line, Passage, Route, Settable } from './helpers/models';
+import {
+	Category,
+	Line,
+	Note,
+	Passage,
+	Route,
+	Settable,
+} from './helpers/models';
 
 /* ── assertion helpers ──────────────────────────────────────────────────── */
 
@@ -532,6 +541,24 @@ export function _relationshipRegistry() {
 
 	// Which means the loaded shape is recoverable from the registry alone.
 	expectType<Equal<ReturnType<LinesRelation['get']>, Promise<Line[]>>>();
+}
+
+/* A relations literal must satisfy what the loader calls on it. The error
+ * lands on the class, since TypeScript checks the whole static side. */
+{
+	// @ts-expect-error `bogus` is not a LoadableRelation
+	class MissingSurface extends Model<MissingSurface> {
+		id!: number;
+		static readonly relationships = { bogus: { notARelation: true } };
+	}
+	void MissingSurface;
+}
+
+/* MorphTo satisfies the loader's surface without declaring `getRelated`, which
+ * is optional because a polymorphic relation has no single related model. */
+{
+	const target: LoadableRelation = Note.relationships['target']!;
+	void target;
 }
 
 export type {};

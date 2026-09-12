@@ -1,6 +1,7 @@
 /** Polymorphic: the target model is chosen by a discriminator column. */
 
 import type { Model } from '../model';
+import type { LoadableRelation } from './relationship';
 import type { ModelConstructor } from '../model';
 import {
 	dynamicWhere,
@@ -15,7 +16,7 @@ export interface MorphToConfig<T extends Model<T>> {
 	morphMap: Record<string, ModelConstructor<any>>;
 }
 
-export class MorphTo<T extends Model<T>> {
+export class MorphTo<T extends Model<T>> implements LoadableRelation {
 	constructor(
 		// @ts-ignore
 		private parent: any,

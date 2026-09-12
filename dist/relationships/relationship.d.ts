@@ -4,7 +4,17 @@
  */
 import type { Model, ModelClassRef, ModelStatic } from '../model';
 export type RelatedResolver<T extends Model<T>> = ModelStatic<T> | (() => ModelStatic<T>);
-export declare abstract class Relationship<T extends Model<T>, TClass = unknown> {
+/**
+ * What the loader calls on a relation. `getRelated` is absent on polymorphic
+ * ones, which have no single related model.
+ */
+export interface LoadableRelation {
+    get(parent: Model<any>): Promise<unknown>;
+    eagerLoadFor(models: Model<any>[], relationName: string): Promise<void>;
+    getOwnerFields(): string[];
+    getRelated?(): ModelStatic<any>;
+}
+export declare abstract class Relationship<T extends Model<T>, TClass = unknown> implements LoadableRelation {
     /**
      * Carries the related class type for RelationPath to recurse into.
      * Never assigned; `declare` emits nothing.

@@ -719,6 +719,16 @@ export class QueryBuilder<
 			);
 
 			if (validRelatedModels.length > 0) {
+				// A polymorphic relation has no single related model to recurse
+				// into; its targets differ per row.
+				if (typeof relationship.getRelated !== 'function') {
+					throw new Error(
+						`[orm] '${firstLevelRelation}' is polymorphic, so '${nestedRelation}' cannot be ` +
+							`eager loaded through it. Load '${firstLevelRelation}', then load the ` +
+							`remaining path on each target.`,
+					);
+				}
+
 				await this.loadNestedRelationshipOnRelatedModels(
 					validRelatedModels,
 					remainingRelations,

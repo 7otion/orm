@@ -9,13 +9,8 @@ import {
 	setRelation,
 } from '../internal';
 
+import type { LoadableRelation } from '../relationships/relationship';
 import { ModelState } from './model-state.mixin';
-
-/** The subset of a Relationship this mixin calls. */
-interface LoadableRelationship {
-	get(parent: object): Promise<unknown>;
-	getOwnerFields(): string[];
-}
 
 export class RelationshipLoaderMixin extends ModelState {
 	/**
@@ -87,7 +82,7 @@ export class RelationshipLoaderMixin extends ModelState {
 		const relationship = findRelationship(
 			ModelClass.relationships,
 			relationshipName,
-		) as LoadableRelationship | undefined;
+		) as LoadableRelation | undefined;
 
 		if (relationship) {
 			if (typeof relationship.get !== 'function') {
@@ -130,7 +125,7 @@ export class RelationshipLoaderMixin extends ModelState {
 			const relationship = findRelationship(
 				relationships,
 				relationName,
-			) as LoadableRelationship | undefined;
+			) as LoadableRelation | undefined;
 			if (!relationship) continue;
 
 			const ownerFields = relationship.getOwnerFields();

@@ -6,6 +6,7 @@ import { BelongsTo } from './relationships/belongsTo';
 import { BelongsToMany } from './relationships/belongsToMany';
 import { MorphTo, type MorphToConfig } from './relationships/morphTo';
 import { MorphMany, type MorphManyConfig } from './relationships/morphMany';
+import type { LoadableRelation } from './relationships/relationship';
 import { RecordPersistenceMixin } from './mixins/record-persistence.mixin';
 import { ChangeStateMixin } from './mixins/change-state.mixin';
 import { RelationshipLoaderMixin } from './mixins/relationship-loader.mixin';
@@ -53,8 +54,8 @@ export interface Model<T extends Model<T>> extends RecordPersistenceMixin, Chang
 export declare abstract class Model<T extends Model<T>> {
     private static _relationshipsCache;
     /** Override in a subclass, or declare a `relationships` literal instead. */
-    protected static defineRelationships(): Record<string, any>;
-    static get relationships(): Record<string, any>;
+    protected static defineRelationships(): Record<string, LoadableRelation>;
+    static get relationships(): Record<string, LoadableRelation>;
     static config: ModelConfig;
     private static _castsCache;
     private static _timestampsCache;

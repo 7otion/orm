@@ -8,6 +8,7 @@ import { BelongsTo } from './relationships/belongsTo';
 import { BelongsToMany } from './relationships/belongsToMany';
 import { MorphTo, type MorphToConfig } from './relationships/morphTo';
 import { MorphMany, type MorphManyConfig } from './relationships/morphMany';
+import type { LoadableRelation } from './relationships/relationship';
 
 import { RecordPersistenceMixin } from './mixins/record-persistence.mixin';
 import { ChangeStateMixin } from './mixins/change-state.mixin';
@@ -73,15 +74,15 @@ export interface Model<T extends Model<T>>
 export abstract class Model<T extends Model<T>> {
 	private static _relationshipsCache = new WeakMap<
 		typeof Model,
-		Record<string, any>
+		Record<string, LoadableRelation>
 	>();
 
 	/** Override in a subclass, or declare a `relationships` literal instead. */
-	protected static defineRelationships(): Record<string, any> {
+	protected static defineRelationships(): Record<string, LoadableRelation> {
 		return {};
 	}
 
-	static get relationships(): Record<string, any> {
+	static get relationships(): Record<string, LoadableRelation> {
 		// Per class, so a subclass never inherits its parent's map.
 		if (!Model._relationshipsCache.has(this)) {
 			Model._relationshipsCache.set(this, this.defineRelationships());
