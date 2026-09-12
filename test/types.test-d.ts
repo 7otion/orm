@@ -503,14 +503,15 @@ export async function _writeSurfacesAreTyped() {
 	// @ts-expect-error - a single row is not a list.
 	await Line.createMany({ ref: 'x' });
 
-	// updateMany reports a count and checks its rows the same way.
-	const touched = await Line.updateMany([{ ref: 'intro/a', text: 'hi' }]);
-	expectType<Equal<typeof touched, number>>();
+	// updateMany takes the models themselves, and hands them back.
+	const lines = await Line.query().get();
+	const saved = await Line.updateMany(lines);
+	expectType<Equal<typeof saved, Line[]>>();
 
-	// @ts-expect-error - computed property, not a column.
-	await Line.updateMany([{ summary: 'x' }]);
-	// @ts-expect-error - wrong type for a real column.
-	await Line.updateMany([{ text: 12345 }]);
+	// @ts-expect-error - plain data is not a model.
+	await Line.updateMany([{ ref: 'intro/a', text: 'hi' }]);
+	// @ts-expect-error - a Passage is not a Line.
+	await Line.updateMany(await Passage.query().get());
 }
 
 /* ── The relationship registry: names survive, related types do not ─────── */

@@ -573,7 +573,7 @@ describe('createMany', () => {
 });
 
 describe('updateMany', () => {
-	async function seedFragments(): Promise<void> {
+	async function seedFragments(): Promise<Fragment[]> {
 		await Fragment.createMany([
 			{
 				schema_ref: 'appearance',
@@ -594,22 +594,21 @@ describe('updateMany', () => {
 				sort: 2,
 			},
 		]);
+
+		return Fragment.query().orderBy('suffix', 'asc').get();
 	}
 
-	test('gives every row its own value in one statement', async () => {
+	test('writes every model in one statement', async () => {
 		const { adapter } = await freshDatabase();
-		await seedFragments();
+		const [a, b, c] = await seedFragments();
 
-		const before = await Fragment.query().orderBy('suffix', 'asc').get();
+		a!.sort = 2;
+		b!.sort = 0;
+		c!.sort = 1;
+
 		adapter.clearLog();
+		await Fragment.updateMany([a!, b!, c!]);
 
-		const written = await Fragment.updateMany([
-			{ id: before[0]!.id, sort: 2 },
-			{ id: before[1]!.id, sort: 0 },
-			{ id: before[2]!.id, sort: 1 },
-		]);
-
-		expect(written).toBe(3);
 		expect(
 			adapter.log.filter(e => e.sql.startsWith('UPDATE')),
 		).toHaveLength(1);
@@ -618,23 +617,46 @@ describe('updateMany', () => {
 		expect(after.map(f => f.sort)).toEqual([2, 0, 1]);
 	});
 
-	test('a column a row omits is left alone', async () => {
+	test('hands the models back, no longer dirty', async () => {
 		await freshDatabase();
-		await seedFragments();
+		const [a] = await seedFragments();
 
-		const before = await Fragment.query().orderBy('suffix', 'asc').get();
+		a!.sort = 5;
+		expect(a!.isDirty).toBe(true);
 
-		// Only the second row sets `content`; the first must keep its own.
-		await Fragment.updateMany([
-			{ id: before[0]!.id, sort: 9 },
-			{ id: before[1]!.id, sort: 8, content: 'written' },
-		]);
+		const returned = await Fragment.updateMany([a!]);
+
+		expect(returned[0]).toBe(a!);
+		expect(a!.isDirty).toBe(false);
+		expect(a!.getDirty()).toEqual([]);
+	});
+
+	test('models with nothing pending are skipped', async () => {
+		const { adapter } = await freshDatabase();
+		const models = await seedFragments();
+
+		adapter.clearLog();
+		const returned = await Fragment.updateMany(models);
+
+		expect(returned).toBe(models);
+		expect(adapter.log.filter(e => e.sql.startsWith('UPDATE'))).toEqual([]);
+	});
+
+	test('a column only one model changed is written only for it', async () => {
+		await freshDatabase();
+		const [a, b] = await seedFragments();
+
+		a!.sort = 9;
+		b!.sort = 8;
+		b!.content = 'written';
+
+		await Fragment.updateMany([a!, b!]);
 
 		const after = await Fragment.query().orderBy('suffix', 'asc').get();
 		expect(after[0]!.sort).toBe(9);
 		expect(after[0]!.content).toBeNull();
 		expect(after[1]!.content).toBe('written');
-		// Untouched by either row.
+		// In neither model's list.
 		expect(after[2]!.sort).toBe(2);
 	});
 
@@ -647,13 +669,14 @@ describe('updateMany', () => {
 			{ character_ref: 'bob', tag: 'hero', sort: 0 },
 		]);
 
-		adapter.clearLog();
-		const written = await CharacterTag.updateMany([
-			{ character_ref: 'alice', tag: 'hero', sort: 5 },
-			{ character_ref: 'bob', tag: 'hero', sort: 6 },
-		]);
+		const heroes = (await CharacterTag.query().get()).filter(
+			r => r.tag === 'hero',
+		);
+		heroes.forEach((row, i) => (row.sort = 5 + i));
 
-		expect(written).toBe(2);
+		adapter.clearLog();
+		await CharacterTag.updateMany(heroes);
+
 		const update = adapter.log.find(e => e.sql.startsWith('UPDATE'))!;
 		expect(update.sql).toContain('OR');
 
@@ -666,7 +689,7 @@ describe('updateMany', () => {
 		]);
 	});
 
-	test('stamps updated_at once for the whole statement', async () => {
+	test('stamps updated_at once, on the statement and the models', async () => {
 		const { adapter } = await freshDatabase();
 
 		await Passage.createMany([
@@ -674,78 +697,82 @@ describe('updateMany', () => {
 			{ ref: 'hall', title: 'Hall', status: 'draft' },
 		]);
 
+		const passages = await Passage.query().orderBy('ref', 'asc').get();
+		for (const passage of passages) passage.title = `${passage.title}!`;
+
 		adapter.clearLog();
-		await Passage.updateMany([
-			{ ref: 'intro', title: 'Prologue' },
-			{ ref: 'hall', title: 'Great Hall' },
-		]);
+		await Passage.updateMany(passages);
 
 		const update = adapter.log.find(e => e.sql.startsWith('UPDATE'))!;
 		expect(update.sql).toContain('"updated_at" = ?');
 		expect(update.sql).not.toContain('"updated_at" = CASE');
-	});
-
-	test('a caller-supplied timestamp is ignored', async () => {
-		const { adapter } = await freshDatabase();
-		await Passage.createMany([
-			{ ref: 'intro', title: 'Intro', status: 'draft' },
-		]);
-
-		adapter.clearLog();
-		await Passage.updateMany([
-			{
-				ref: 'intro',
-				title: 'Prologue',
-				created_at: new Date(0),
-			} as never,
-		]);
-
-		const update = adapter.log.find(e => e.sql.startsWith('UPDATE'))!;
+		// Owned by the ORM, so never written from a model's own attributes.
 		expect(update.sql).not.toContain('"created_at"');
+
+		for (const passage of passages) {
+			expect(passage.updated_at).toBeInstanceOf(Date);
+			expect(passage.isDirty).toBe(false);
+		}
 	});
 
 	test('chunks past the dialect parameter limit', async () => {
 		const { adapter } = await freshDatabase();
 
-		const tags = Array.from({ length: 400 }, (_, i) => ({
-			character_ref: 'alice',
-			tag: `tag-${i}`,
-			sort: 0,
-		}));
-		await CharacterTag.createMany(tags);
-
-		adapter.clearLog();
-		const written = await CharacterTag.updateMany(
-			tags.map((tag, i) => ({ ...tag, sort: i + 1 })),
+		await CharacterTag.createMany(
+			Array.from({ length: 400 }, (_, i) => ({
+				character_ref: 'alice',
+				tag: `tag-${i}`,
+				sort: 0,
+			})),
 		);
 
-		expect(written).toBe(400);
+		const rows = await CharacterTag.query().get();
+		for (const row of rows) {
+			row.sort = Number(row.tag.split('-')[1]) + 1;
+		}
+
+		adapter.clearLog();
+		await CharacterTag.updateMany(rows);
+
 		expect(
 			adapter.log.filter(e => e.sql.startsWith('UPDATE')).length,
 		).toBeGreaterThan(1);
 
-		const rows = await CharacterTag.query().where('tag', 'tag-399').get();
-		expect(rows[0]!.sort).toBe(400);
+		const last = await CharacterTag.query().where('tag', 'tag-399').get();
+		expect(last[0]!.sort).toBe(400);
 	});
 
-	test('empty input, and rows with nothing to set, write nothing', async () => {
+	test('an empty list writes nothing', async () => {
 		const { adapter } = await freshDatabase();
-		await seedFragments();
 
-		const before = await Fragment.query().get();
 		adapter.clearLog();
-
-		expect(await Fragment.updateMany([])).toBe(0);
-		expect(await Fragment.updateMany([{ id: before[0]!.id }])).toBe(0);
-		expect(adapter.log.filter(e => e.sql.startsWith('UPDATE'))).toEqual([]);
+		expect(await Fragment.updateMany([])).toEqual([]);
+		expect(adapter.log).toEqual([]);
 	});
 
-	test('a row missing its key is refused', async () => {
+	test('a row that is no longer there is reported', async () => {
 		await freshDatabase();
-		await seedFragments();
+		const [a, b] = await seedFragments();
 
-		await expect(Fragment.updateMany([{ sort: 3 }])).rejects.toThrow(
-			/"id" is missing/i,
+		await b!.delete();
+
+		a!.sort = 4;
+		b!.sort = 5;
+
+		await expect(Fragment.updateMany([a!, b!])).rejects.toThrow(/1 of 2/);
+	});
+
+	test('reassigning a key in bulk is refused', async () => {
+		await freshDatabase();
+		await Passage.createMany([
+			{ ref: 'intro', title: 'Intro', status: 'draft' },
+		]);
+
+		const [passage] = await Passage.query().get();
+		passage!.ref = 'prologue';
+
+		await expect(Passage.updateMany([passage!])).rejects.toThrow(
+			/Cannot reassign "ref"/i,
 		);
 	});
 });

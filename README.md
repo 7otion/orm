@@ -238,25 +238,26 @@ Rows are grouped by the columns they set, one statement per group, so a row that
 omits a column keeps that column's database default instead of being bound
 `NULL`.
 
-### Bulk updates from rows
+### Bulk updates
 
-`updateMany()` gives each row its own values in a single statement, matching on
-the primary key unless you name another column:
+`updateMany()` writes every model's pending changes in one statement, the way
+`save()` writes one model's:
 
 ```ts
-await Fragment.updateMany([
-	{ id: 3, sort: 0 },
-	{ id: 7, sort: 1 },
-]); // → rows matched
+const fragments = await Fragment.query().where('owner_ref', 'alice').get();
+fragments.forEach((fragment, sort) => (fragment.sort = sort));
 
-await FragmentSchema.updateMany([{ ref: 'appearance', sort: 0 }], 'ref');
+await Fragment.updateMany(fragments); // → the same models, no longer dirty
 ```
 
-A column a row omits is left as it is, so rows need not carry the same shape.
-`updated_at` is stamped once for the statement, and timestamp columns supplied by
-the caller are dropped — as with `QueryBuilder.update()`.
+Only dirty columns are written, and only for the models that changed them, so
+the models need not have changed the same ones. Models with nothing pending are
+skipped. `updated_at` is stamped once for the statement, and rows are located by
+their original primary key — so reassigning a key is refused (`save()` that model
+on its own), and a row that has been deleted raises rather than silently matching
+nothing.
 
-Use this when the values differ per row; when one value applies to everything,
+Use this when the values differ per model; when one value applies to everything,
 `Model.query().where(…).update({ … })` is the smaller statement.
 
 ### Mass assignment

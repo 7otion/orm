@@ -435,13 +435,12 @@ export abstract class Model<T extends Model<T>> {
 		return new BulkWriter(this).insert(rows);
 	}
 
-	/** Rows matched, each supplying its own values; keyed by the primary key. */
+	/** Saves every model's pending changes in one statement. */
 	static async updateMany<T extends Model<T>>(
 		this: ModelStatic<T>,
-		rows: NoInfer<Patch<T>>[],
-		keyBy?: string | string[],
-	): Promise<number> {
-		return new BulkWriter(this).update(rows, keyBy);
+		models: T[],
+	): Promise<T[]> {
+		return new BulkWriter(this).update(models);
 	}
 
 	protected static hasOne<C extends ModelStatic<any>>(

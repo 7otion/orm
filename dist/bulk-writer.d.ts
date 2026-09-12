@@ -5,7 +5,7 @@ export declare class BulkWriter<T extends Model<T>> {
     private readonly modelClass;
     constructor(modelClass: ModelStatic<T>);
     insert(rows: Patch<T>[]): Promise<number>;
-    update(rows: Patch<T>[], keyBy?: string | string[]): Promise<number>;
+    update(models: T[]): Promise<T[]>;
     private keyColumns;
     private toRow;
     /** One statement per shape, so a row omitting a column keeps its default. */
