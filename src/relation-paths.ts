@@ -7,7 +7,7 @@
 
 /**
  * Recursion budget. Model graphs are cyclic, so an uncapped walk never
- * terminates. Four levels covers realistic graphs.
+ * terminates. A budget of D permits paths of D + 1 segments.
  */
 type Decrement = [never, 0, 1, 2, 3, 4, 5];
 type Depth = 0 | 1 | 2 | 3 | 4 | 5;
@@ -30,7 +30,7 @@ type RelationsOf<TClass> = TClass extends { relationships: infer R }
  */
 export type RelationPath<
 	TRelations,
-	D extends Depth = 4,
+	D extends Depth = 5,
 > = string extends keyof TRelations
 	? string
 	: [D] extends [never]
