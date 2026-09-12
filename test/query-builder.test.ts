@@ -12,6 +12,7 @@ import {
 	Role,
 	User,
 } from './helpers/models';
+import { SQLiteDialect } from '../src/plugins/dialects/sqlite';
 import { freshDatabase } from './helpers/setup';
 
 async function seedFragments(): Promise<void> {
@@ -833,5 +834,71 @@ describe('static shorthands', () => {
 
 		expect(line.ref).toBe('intro/say-hi');
 		expect(await Line.query().get()).toHaveLength(1);
+	});
+});
+
+describe('limits on writes', () => {
+	test('update() honours limit, offset and order', async () => {
+		await freshDatabase();
+		for (let index = 0; index < 5; index++) {
+			await User.create({ name: `u${index}`, status: 'old' });
+		}
+
+		await User.query()
+			.orderBy('id')
+			.limit(2)
+			.offset(2)
+			.update({ status: 'new' });
+
+		const changed = (await User.query().orderBy('id').get())
+			.filter(user => user.status === 'new')
+			.map(user => user.name);
+
+		expect(changed).toEqual(['u2', 'u3']);
+	});
+
+	test('delete() honours limit', async () => {
+		await freshDatabase();
+		for (let index = 0; index < 5; index++) {
+			await User.create({ name: `u${index}` });
+		}
+
+		expect(await User.query().orderBy('id').limit(2).delete()).toBe(2);
+		expect(await User.query().get()).toHaveLength(3);
+	});
+
+	test('delete() supports joins, as compileSelect does', async () => {
+		const { adapter } = await freshDatabase();
+		adapter.db.exec(`INSERT INTO roles (id, name) VALUES (1, 'admin')`);
+		await User.create({ name: 'a' });
+		await User.create({ name: 'b' });
+
+		const query = User.query() as never as {
+			innerJoin(
+				t: string,
+				a: string,
+				op: string,
+				b: string,
+			): { delete(): Promise<number> };
+		};
+
+		expect(
+			await query
+				.innerJoin('roles', 'users.id', '=', 'roles.id')
+				.delete(),
+		).toBe(1);
+		expect((await User.query().get()).map(user => user.name)).toEqual([
+			'b',
+		]);
+	});
+
+	test('a plain delete stays a plain statement', () => {
+		const compiled = new SQLiteDialect().compileDeleteQuery({
+			table: 'users',
+			wheres: [{ type: 'basic', column: 'id', operator: '=', value: 1 }],
+			orders: [],
+		});
+
+		expect(compiled.sql).toBe('DELETE FROM "users" WHERE "id" = ?');
 	});
 });

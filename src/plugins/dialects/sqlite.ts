@@ -1,6 +1,7 @@
 import type { SqlDialect } from '../../dialect';
 import type {
 	CompiledQuery,
+	OrderByClause,
 	QueryStructure,
 	QueryValue,
 	WhereCondition,
@@ -38,11 +39,7 @@ export class SQLiteDialect implements SqlDialect {
 
 		sql += ` FROM ${this.escapeIdentifier(query.table)}`;
 
-		if (query.joins && query.joins.length > 0) {
-			for (const join of query.joins) {
-				sql += ` ${join.type} JOIN ${this.escapeIdentifier(join.table)} ON ${this.escapeIdentifier(join.first)} ${join.operator} ${this.escapeIdentifier(join.second)}`;
-			}
-		}
+		sql += this.compileJoins(query);
 
 		if (query.wheres.length > 0) {
 			sql += ` WHERE ${this.compileWheres(query.wheres, bindings)}`;
@@ -59,18 +56,43 @@ export class SQLiteDialect implements SqlDialect {
 			sql += ` HAVING ${this.compileWheres(query.havings, bindings)}`;
 		}
 
-		if (query.orders.length > 0) {
-			sql += ' ORDER BY ';
-			const orderClauses = query.orders.map(order => {
-				if (order.direction === 'raw') {
-					return order.column;
-				}
-				return `${this.escapeIdentifier(order.column)} ${order.direction.toUpperCase()}`;
-			});
-			sql += orderClauses.join(', ');
-		}
+		sql += this.compileOrders(query.orders);
+		sql += this.compileLimit(query, bindings);
 
-		// SQLite's grammar is LIMIT expr [OFFSET expr]; -1 is its no-limit sentinel.
+		return this.compiled(sql, bindings);
+	}
+
+	private compileJoins(query: QueryStructure): string {
+		if (!query.joins || query.joins.length === 0) return '';
+
+		return query.joins
+			.map(
+				join =>
+					` ${join.type} JOIN ${this.escapeIdentifier(join.table)} ON ` +
+					`${this.escapeIdentifier(join.first)} ${join.operator} ${this.escapeIdentifier(join.second)}`,
+			)
+			.join('');
+	}
+
+	private compileOrders(orders: OrderByClause[]): string {
+		if (orders.length === 0) return '';
+
+		const clauses = orders.map(order =>
+			order.direction === 'raw'
+				? order.column
+				: `${this.escapeIdentifier(order.column)} ${order.direction.toUpperCase()}`,
+		);
+
+		return ` ORDER BY ${clauses.join(', ')}`;
+	}
+
+	/** SQLite's grammar is LIMIT expr [OFFSET expr]; -1 is its no-limit sentinel. */
+	private compileLimit(
+		query: QueryStructure,
+		bindings: QueryValue[],
+	): string {
+		let sql = '';
+
 		if (query.limitValue !== undefined || query.offsetValue !== undefined) {
 			sql += ' LIMIT ?';
 			bindings.push(query.limitValue ?? -1);
@@ -81,7 +103,36 @@ export class SQLiteDialect implements SqlDialect {
 			bindings.push(query.offsetValue);
 		}
 
-		return this.compiled(sql, bindings);
+		return sql;
+	}
+
+	/**
+	 * UPDATE and DELETE take no join, limit or offset of their own, so anything
+	 * beyond a plain WHERE is expressed as the set of rows a SELECT would match.
+	 * Rowid tables only; a WITHOUT ROWID table has no such column.
+	 */
+	private rowidFilter(query: QueryStructure, bindings: QueryValue[]): string {
+		const table = this.escapeIdentifier(query.table);
+
+		let sql = `SELECT ${table}.rowid FROM ${table}`;
+		sql += this.compileJoins(query);
+
+		if (query.wheres.length > 0) {
+			sql += ` WHERE ${this.compileWheres(query.wheres, bindings)}`;
+		}
+
+		sql += this.compileOrders(query.orders);
+		sql += this.compileLimit(query, bindings);
+
+		return `rowid IN (${sql})`;
+	}
+
+	private needsRowidFilter(query: QueryStructure): boolean {
+		return (
+			(query.joins?.length ?? 0) > 0 ||
+			query.limitValue !== undefined ||
+			query.offsetValue !== undefined
+		);
 	}
 
 	compileInsert(
@@ -260,36 +311,10 @@ export class SQLiteDialect implements SqlDialect {
 		const bindings: QueryValue[] = [];
 		let sql = `DELETE FROM ${this.escapeIdentifier(query.table)}`;
 
-		if (query.joins && query.joins.length > 0) {
-			for (const join of query.joins) {
-				sql += ` ${join.type} JOIN ${this.escapeIdentifier(join.table)} ON ${this.escapeIdentifier(join.first)} ${join.operator} ${this.escapeIdentifier(join.second)}`;
-			}
-		}
-
-		if (query.wheres.length > 0) {
+		if (this.needsRowidFilter(query)) {
+			sql += ` WHERE ${this.rowidFilter(query, bindings)}`;
+		} else if (query.wheres.length > 0) {
 			sql += ` WHERE ${this.compileWheres(query.wheres, bindings)}`;
-		}
-
-		// Accepted but semantically inert for a delete.
-		if (query.orders.length > 0) {
-			sql += ' ORDER BY ';
-			const orderClauses = query.orders.map(order => {
-				if (order.direction === 'raw') {
-					return order.column;
-				}
-				return `${this.escapeIdentifier(order.column)} ${order.direction.toUpperCase()}`;
-			});
-			sql += orderClauses.join(', ');
-		}
-
-		if (query.limitValue !== undefined) {
-			sql += ' LIMIT ?';
-			bindings.push(query.limitValue);
-		}
-
-		if (query.offsetValue !== undefined) {
-			sql += ' OFFSET ?';
-			bindings.push(query.offsetValue);
 		}
 
 		return this.compiled(sql, bindings);
@@ -307,7 +332,9 @@ export class SQLiteDialect implements SqlDialect {
 
 		let sql = `UPDATE ${this.escapeIdentifier(query.table)} SET ${setClauses}`;
 
-		if (query.wheres.length > 0) {
+		if (this.needsRowidFilter(query)) {
+			sql += ` WHERE ${this.rowidFilter(query, bindings)}`;
+		} else if (query.wheres.length > 0) {
 			sql += ` WHERE ${this.compileWheres(query.wheres, bindings)}`;
 		}
 
@@ -317,12 +344,7 @@ export class SQLiteDialect implements SqlDialect {
 	compileCount(query: QueryStructure): CompiledQuery {
 		const bindings: QueryValue[] = [];
 		let sql = `SELECT COUNT(*) as count FROM ${this.escapeIdentifier(query.table)}`;
-
-		if (query.joins && query.joins.length > 0) {
-			for (const join of query.joins) {
-				sql += ` ${join.type} JOIN ${this.escapeIdentifier(join.table)} ON ${this.escapeIdentifier(join.first)} ${join.operator} ${this.escapeIdentifier(join.second)}`;
-			}
-		}
+		sql += this.compileJoins(query);
 
 		if (query.wheres.length > 0) {
 			sql += ` WHERE ${this.compileWheres(query.wheres, bindings)}`;
