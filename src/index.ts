@@ -11,6 +11,7 @@
 export { Model, type ModelConstructor } from './model';
 export type { ColumnKeys, Columns, Patch } from './columns';
 export type { RelationPath } from './relation-paths';
+export type { LoadableRelation } from './relationships/relationship';
 export { ORM, type ORMConfig } from './orm';
 export { Transaction } from './transaction';
 export type { DatabaseAdapter } from './adapter';
