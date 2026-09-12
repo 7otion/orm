@@ -14,6 +14,7 @@ import { ORM } from './orm';
 import type { Transaction } from './transaction';
 import {
 	assertIdentifier,
+	assertOperator,
 	findRelationship,
 	getRelation,
 	omitUndefined,
@@ -263,7 +264,7 @@ export class QueryBuilder<
 		return {
 			type: 'basic',
 			column: assertIdentifier(column, 'column'),
-			operator,
+			operator: assertOperator(operator, 'operator') as WhereOperator,
 			value: this.stored(column, actualValue),
 		};
 	}
@@ -292,7 +293,7 @@ export class QueryBuilder<
 			type,
 			table: assertIdentifier(table, 'table'),
 			first: assertIdentifier(first, 'join column'),
-			operator,
+			operator: assertOperator(operator, 'join operator'),
 			second: assertIdentifier(second, 'join column'),
 		});
 

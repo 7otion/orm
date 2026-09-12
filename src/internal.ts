@@ -26,6 +26,36 @@ export function assertIdentifier(value: string, kind: string): string {
 	return value;
 }
 
+/** Operators are interpolated into SQL, not bound, so only these are allowed. */
+const OPERATORS = new Set([
+	'=',
+	'!=',
+	'<>',
+	'>',
+	'>=',
+	'<',
+	'<=',
+	'LIKE',
+	'NOT LIKE',
+	'IN',
+	'NOT IN',
+	'IS',
+	'IS NOT',
+]);
+
+/** Returned uppercased, so the dialect can compare against one spelling. */
+export function assertOperator(value: string, kind: string): string {
+	const normalized = String(value).trim().toUpperCase();
+	if (!OPERATORS.has(normalized)) {
+		throw new Error(
+			`[orm] Unsafe ${kind}: ${JSON.stringify(value)}. ` +
+				`Expected one of ${[...OPERATORS].join(', ')}. ` +
+				`Use whereRaw() for anything else.`,
+		);
+	}
+	return normalized;
+}
+
 /**
  * A query builder with the column check dropped.
  *

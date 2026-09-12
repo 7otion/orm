@@ -277,7 +277,9 @@ describe('eager loading', () => {
 		adapter.clearLog();
 		await Asset.query().with('file').get();
 
-		const fileQuery = adapter.log.find(e => e.sql.includes('FROM files'))!;
+		const fileQuery = adapter.log.find(e =>
+			e.sql.includes('FROM "files"'),
+		)!;
 		// Three assets share one file: the IN list must collapse to a single id.
 		expect(fileQuery.params).toEqual([file.id]);
 	});
@@ -385,7 +387,7 @@ describe('nested eager loading', () => {
 		await Passage.query().with('lines', 'lines.routes').get();
 
 		const lineQueries = adapter.log.filter(e =>
-			e.sql.includes('FROM lines'),
+			e.sql.includes('FROM "lines"'),
 		);
 		// 'lines' and 'lines.routes' both need lines, but only one SELECT should fire.
 		expect(lineQueries).toHaveLength(1);
@@ -488,7 +490,7 @@ describe('lazy loading', () => {
 		adapter.clearLog();
 		await passage!.load('lines');
 
-		expect(adapter.log.filter(e => e.sql.includes('FROM lines'))).toEqual(
+		expect(adapter.log.filter(e => e.sql.includes('FROM "lines"'))).toEqual(
 			[],
 		);
 	});
@@ -502,7 +504,7 @@ describe('lazy loading', () => {
 		await Promise.all([passage!.load('lines'), passage!.load('lines')]);
 
 		expect(
-			adapter.log.filter(e => e.sql.includes('FROM lines')),
+			adapter.log.filter(e => e.sql.includes('FROM "lines"')),
 		).toHaveLength(1);
 	});
 
@@ -644,7 +646,7 @@ describe('relationship cache invalidation', () => {
 		intro!.title = 'Changed';
 		await intro!.save();
 
-		expect(adapter.log.filter(e => e.sql.includes('FROM lines'))).toEqual(
+		expect(adapter.log.filter(e => e.sql.includes('FROM "lines"'))).toEqual(
 			[],
 		);
 		expect(intro!.lines).toHaveLength(2);

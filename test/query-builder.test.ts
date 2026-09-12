@@ -588,7 +588,7 @@ describe('exists', () => {
 		await User.query().where('status', 'active').exists();
 
 		const select = adapter.log.find(e => e.kind === 'query')!;
-		expect(select.sql).toContain('SELECT 1 FROM users');
+		expect(select.sql).toContain('SELECT 1 FROM "users"');
 		expect(select.sql).toContain('LIMIT ?');
 		expect(select.params).toEqual(['active', 1]);
 	});

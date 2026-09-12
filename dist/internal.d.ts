@@ -6,6 +6,8 @@ import type { QueryValue } from './types';
  * methods, where the caller is explicitly taking responsibility.
  */
 export declare function assertIdentifier(value: string, kind: string): string;
+/** Returned uppercased, so the dialect can compare against one spelling. */
+export declare function assertOperator(value: string, kind: string): string;
 /**
  * A query builder with the column check dropped.
  *

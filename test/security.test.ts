@@ -120,6 +120,80 @@ describe('identifier injection', () => {
 	});
 });
 
+describe('operator injection', () => {
+	test('join() rejects an operator that is not a comparison', async () => {
+		await freshDatabase();
+		const query = User.query() as never as {
+			innerJoin(t: string, a: string, op: string, b: string): unknown;
+		};
+
+		expect(() =>
+			query.innerJoin('roles', 'users.id', '= 1 OR 1=1 --', 'roles.id'),
+		).toThrow(/Unsafe join operator/);
+	});
+
+	test('where() rejects an operator that is not a comparison', async () => {
+		await freshDatabase();
+		const query = User.query() as never as {
+			where(c: string, op: string, v: unknown): unknown;
+		};
+
+		expect(() => query.where('id', 'IS NOT NULL OR 1=1 --', 1)).toThrow(
+			/Unsafe operator/,
+		);
+	});
+
+	test('operators are accepted in any case', async () => {
+		await freshDatabase();
+		await User.create({ name: 'Ann' });
+
+		expect(
+			await (
+				User.query() as never as {
+					where(
+						c: string,
+						op: string,
+						v: unknown,
+					): { get(): Promise<User[]> };
+				}
+			)
+				.where('name', 'like', 'A%')
+				.get(),
+		).toHaveLength(1);
+	});
+});
+
+describe('identifier escaping', () => {
+	test('a reserved word is usable as a table or column name', async () => {
+		const { adapter } = await freshDatabase();
+		adapter.db.exec('CREATE TABLE "order" ("group" TEXT)');
+
+		class Order extends Model<Order> {
+			static config = { table: 'order', timestamps: false };
+			group!: string | null;
+			static readonly relationships = {};
+		}
+
+		await Order.create({ group: 'a' });
+		expect(await Order.query().where('group', 'a').get()).toHaveLength(1);
+	});
+
+	test('a qualified wildcard is not quoted into a column name', async () => {
+		await freshDatabase();
+		await User.create({ name: 'Ann' });
+
+		const rows = await (
+			User.query() as never as {
+				select(c: string): { get(): Promise<User[]> };
+			}
+		)
+			.select('users.*')
+			.get();
+
+		expect(rows).toHaveLength(1);
+	});
+});
+
 describe('mass assignment', () => {
 	class Account extends Model<Account> {
 		static config = {

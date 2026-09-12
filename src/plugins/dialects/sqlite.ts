@@ -29,16 +29,18 @@ export class SQLiteDialect implements SqlDialect {
 		if (query.selectRaw) {
 			sql += query.selectRaw;
 		} else if (query.columns && query.columns.length > 0) {
-			sql += query.columns.join(', ');
+			sql += query.columns
+				.map(column => this.escapeIdentifier(column))
+				.join(', ');
 		} else {
 			sql += '*';
 		}
 
-		sql += ` FROM ${query.table}`;
+		sql += ` FROM ${this.escapeIdentifier(query.table)}`;
 
 		if (query.joins && query.joins.length > 0) {
 			for (const join of query.joins) {
-				sql += ` ${join.type} JOIN ${join.table} ON ${join.first} ${join.operator} ${join.second}`;
+				sql += ` ${join.type} JOIN ${this.escapeIdentifier(join.table)} ON ${this.escapeIdentifier(join.first)} ${join.operator} ${this.escapeIdentifier(join.second)}`;
 			}
 		}
 
@@ -94,7 +96,7 @@ export class SQLiteDialect implements SqlDialect {
 			.join(', ');
 		const placeholders = columns.map(() => '?').join(', ');
 
-		const sql = `INSERT INTO ${table} (${columnList}) VALUES (${placeholders})`;
+		const sql = `INSERT INTO ${this.escapeIdentifier(table)} (${columnList}) VALUES (${placeholders})`;
 
 		return this.compiled(sql, values);
 	}
@@ -116,7 +118,7 @@ export class SQLiteDialect implements SqlDialect {
 
 		const bindings = rows.flatMap(row => columns.map(col => row[col]!));
 
-		const sql = `INSERT INTO ${table} (${columnList}) VALUES ${tuples}`;
+		const sql = `INSERT INTO ${this.escapeIdentifier(table)} (${columnList}) VALUES ${tuples}`;
 
 		return this.compiled(sql, bindings);
 	}
@@ -162,7 +164,7 @@ export class SQLiteDialect implements SqlDialect {
 			bindings.push(value);
 		}
 
-		let sql = `UPDATE ${table} SET ${assignments.join(', ')}`;
+		let sql = `UPDATE ${this.escapeIdentifier(table)} SET ${assignments.join(', ')}`;
 
 		if (keyColumns.length === 1) {
 			const column = keyColumns[0]!;
@@ -215,7 +217,7 @@ export class SQLiteDialect implements SqlDialect {
 			whereBindings = [id as QueryValue];
 		}
 
-		const sql = `UPDATE ${table} SET ${setClauses} WHERE ${whereClause}`;
+		const sql = `UPDATE ${this.escapeIdentifier(table)} SET ${setClauses} WHERE ${whereClause}`;
 		const bindings = [...values, ...whereBindings];
 
 		return this.compiled(sql, bindings);
@@ -249,18 +251,18 @@ export class SQLiteDialect implements SqlDialect {
 			bindings = [id as QueryValue];
 		}
 
-		const sql = `DELETE FROM ${table} WHERE ${whereClause}`;
+		const sql = `DELETE FROM ${this.escapeIdentifier(table)} WHERE ${whereClause}`;
 
 		return this.compiled(sql, bindings);
 	}
 
 	compileDeleteQuery(query: QueryStructure): CompiledQuery {
 		const bindings: QueryValue[] = [];
-		let sql = `DELETE FROM ${query.table}`;
+		let sql = `DELETE FROM ${this.escapeIdentifier(query.table)}`;
 
 		if (query.joins && query.joins.length > 0) {
 			for (const join of query.joins) {
-				sql += ` ${join.type} JOIN ${join.table} ON ${join.first} ${join.operator} ${join.second}`;
+				sql += ` ${join.type} JOIN ${this.escapeIdentifier(join.table)} ON ${this.escapeIdentifier(join.first)} ${join.operator} ${this.escapeIdentifier(join.second)}`;
 			}
 		}
 
@@ -303,7 +305,7 @@ export class SQLiteDialect implements SqlDialect {
 			.join(', ');
 		const bindings: QueryValue[] = [...Object.values(data)];
 
-		let sql = `UPDATE ${query.table} SET ${setClauses}`;
+		let sql = `UPDATE ${this.escapeIdentifier(query.table)} SET ${setClauses}`;
 
 		if (query.wheres.length > 0) {
 			sql += ` WHERE ${this.compileWheres(query.wheres, bindings)}`;
@@ -314,11 +316,11 @@ export class SQLiteDialect implements SqlDialect {
 
 	compileCount(query: QueryStructure): CompiledQuery {
 		const bindings: QueryValue[] = [];
-		let sql = `SELECT COUNT(*) as count FROM ${query.table}`;
+		let sql = `SELECT COUNT(*) as count FROM ${this.escapeIdentifier(query.table)}`;
 
 		if (query.joins && query.joins.length > 0) {
 			for (const join of query.joins) {
-				sql += ` ${join.type} JOIN ${join.table} ON ${join.first} ${join.operator} ${join.second}`;
+				sql += ` ${join.type} JOIN ${this.escapeIdentifier(join.table)} ON ${this.escapeIdentifier(join.first)} ${join.operator} ${this.escapeIdentifier(join.second)}`;
 			}
 		}
 
@@ -378,6 +380,9 @@ export class SQLiteDialect implements SqlDialect {
 
 	/** Quotes an identifier so reserved words and dots are safe. */
 	private escapeIdentifier(identifier: string): string {
+		// A wildcard is not a name; quoting it would make it one.
+		if (identifier === '*') return identifier;
+
 		if (identifier.includes('.')) {
 			return identifier
 				.split('.')

@@ -140,7 +140,9 @@ describe('morphMany', () => {
 		adapter.clearLog();
 		await MorphHotspot.query().with('conditions').get();
 
-		const query = adapter.log.find(e => e.sql.includes('FROM conditions'))!;
+		const query = adapter.log.find(e =>
+			e.sql.includes('FROM "conditions"'),
+		)!;
 		expect(query.sql).toContain('"owner_kind" = ?');
 		expect(query.params).toContain('hotspot');
 	});
@@ -193,7 +195,7 @@ describe('morphMany', () => {
 		expect(hotspots).toHaveLength(3);
 		expect(hotspots.every(h => h.conditions.length === 1)).toBe(true);
 		expect(
-			adapter.log.filter(e => e.sql.includes('FROM conditions')),
+			adapter.log.filter(e => e.sql.includes('FROM "conditions"')),
 		).toHaveLength(1);
 	});
 
