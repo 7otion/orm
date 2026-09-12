@@ -20,24 +20,12 @@ import {
 import type { AnyRelations, RelationPath } from './relation-paths';
 import type { ColumnRef, Patch, ValueFor, ValueForOperator } from './columns';
 
-/**
- * `Grouped` is a phantom flag, erased at runtime. `groupBy()` flips it, and the
- * methods that hydrate rows into models take a `this` typed against `false`, so
- * a grouped query cannot reach them.
- */
 export class QueryBuilder<
 	T extends Model<T>,
 	TRelations = AnyRelations,
 	Grouped extends boolean = false,
 > {
-	/**
-	 * @internal Phantom marker. `declare` emits nothing, so no instance ever
-	 * carries it at runtime.
-	 *
-	 * It exists so that `Grouped` occupies a member position. Without one, every
-	 * instantiation is structurally identical and mutually assignable, which
-	 * makes the `this` parameters below accept a grouped builder anyway.
-	 */
+	/** @internal Phantom marker, giving `Grouped` a member position. */
 	declare readonly __grouped: Grouped;
 
 	private query: QueryStructure;
@@ -334,11 +322,7 @@ export class QueryBuilder<
 		return this;
 	}
 
-	/**
-	 * Groups the rows, which stops them being model rows: read them with
-	 * `aggregate()`, since `get()` and the other hydrating terminals are typed
-	 * out of reach from here.
-	 */
+	/** Grouped rows are not model rows, so only `aggregate()` reads them. */
 	groupBy(...columns: ColumnRef<T>[]): QueryBuilder<T, TRelations, true> {
 		this.query.groups = columns.map(c =>
 			assertIdentifier(String(c), 'column'),
@@ -346,14 +330,9 @@ export class QueryBuilder<
 		return this as unknown as QueryBuilder<T, TRelations, true>;
 	}
 
-	/**
-	 * Rows exactly as the adapter returned them. Nothing is hydrated, so a
-	 * projection that is not a row of `T` — a COUNT, a GROUP BY — stays honest
-	 * instead of arriving as a model with absent columns and no identity.
-	 */
+	/** Rows exactly as the adapter returned them; nothing is hydrated. */
 	async aggregate<R = DatabaseRow>(): Promise<R[]> {
-		// `Grouped` is phantom, so the constraint cannot see which instantiation
-		// it is being handed.
+		// The constraint is declared against the ungrouped builder.
 		this.relationshipConstraint?.(
 			this as unknown as QueryBuilder<T, TRelations>,
 		);
@@ -393,6 +372,7 @@ export class QueryBuilder<
 	}
 
 	async get(this: QueryBuilder<T, TRelations, false>): Promise<T[]> {
+		// Reachable only through a cast, or from JavaScript.
 		if (this.query.groups?.length) {
 			throw new Error(
 				'A grouped query returns rows, not models — use aggregate().',

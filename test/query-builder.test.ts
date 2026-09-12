@@ -418,7 +418,6 @@ describe('grouping', () => {
 			.groupBy('schema_ref')
 			.aggregate();
 
-		// Nothing hydrated: no save(), and no _exists to make one look persisted.
 		expect(row).not.toBeInstanceOf(Fragment);
 		expect((row as { save?: unknown }).save).toBeUndefined();
 	});
@@ -454,8 +453,7 @@ describe('grouping', () => {
 		await freshDatabase();
 		await seedFragments();
 
-		// The `this` type rejects this at compile time; a cast is how a caller
-		// reaches it anyway, and the guard is what catches them.
+		// A cast is the only way to reach the guard from TypeScript.
 		const grouped = Fragment.query()
 			.selectRaw('schema_ref, COUNT(*) AS n')
 			.groupBy('schema_ref') as unknown as ReturnType<

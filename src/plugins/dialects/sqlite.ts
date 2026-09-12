@@ -244,11 +244,7 @@ export class SQLiteDialect implements SqlDialect {
 		return this.compiled(sql, bindings);
 	}
 
-	/**
-	 * Compiles a condition list, joining each to the one before it with its own
-	 * connector. `AND` binds tighter than `OR` in SQL, so a flat list is emitted
-	 * as written rather than parenthesised — grouping is the caller's to state.
-	 */
+	/** Joins each condition to the one before it, parenthesising only groups. */
 	private compileWheres(
 		conditions: WhereCondition[],
 		bindings: QueryValue[],
