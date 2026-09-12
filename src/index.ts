@@ -26,6 +26,7 @@ export type {
 	WhereCondition,
 	OrderByClause,
 	QueryStructure,
+	AggregateFunction,
 	JoinClause,
 	CompiledQuery,
 	TimestampConfig,

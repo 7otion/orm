@@ -2,7 +2,8 @@
 
 import { Relationship } from './relationship';
 import { QueryBuilder } from '../query-builder';
-import type { Model, ModelClassRef, ModelStatic } from '../model';
+import type { Model, ModelClassRef } from '../model';
+import type { RelatedResolver } from './relationship';
 import type { DatabaseRow } from '../types';
 import {
 	assertIdentifier,
@@ -25,7 +26,7 @@ export class BelongsToMany<
 
 	constructor(
 		parent: ModelClassRef | Model<any>,
-		related: ModelStatic<T>,
+		related: RelatedResolver<T>,
 		pivotTable: string,
 		foreignPivotKey?: string,
 		relatedPivotKey?: string,
@@ -43,14 +44,16 @@ export class BelongsToMany<
 		}
 
 		if (!relatedPivotKey) {
-			this.relatedPivotKey = foreignKeyFor(related.name);
+			// `this.related` resolves a thunk; the base has already refused one
+			// that arrived without explicit keys.
+			this.relatedPivotKey = foreignKeyFor(this.related.name);
 		} else {
 			this.relatedPivotKey = relatedPivotKey;
 		}
 
 		const parentPk =
 			parentKey || this.parentConstructor.config?.primaryKey || 'id';
-		const relatedPk = relatedKey || related.config?.primaryKey || 'id';
+		const relatedPk = relatedKey || this.related.config?.primaryKey || 'id';
 
 		this.parentKey = Array.isArray(parentPk) ? parentPk[0]! : parentPk;
 		this.relatedKey = Array.isArray(relatedPk) ? relatedPk[0]! : relatedPk;

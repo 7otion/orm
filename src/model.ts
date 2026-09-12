@@ -454,7 +454,7 @@ export abstract class Model<T extends Model<T>> {
 	}
 
 	protected static belongsToMany<C extends ModelStatic<any>>(
-		related: C,
+		related: C | (() => C),
 		pivotTable: string,
 		foreignPivotKey?: string,
 		relatedPivotKey?: string,

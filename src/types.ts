@@ -55,6 +55,8 @@ export interface QueryStructure {
 	havings?: WhereCondition[];
 }
 
+export type AggregateFunction = 'SUM' | 'AVG' | 'MIN' | 'MAX';
+
 export interface JoinClause {
 	type: 'INNER' | 'LEFT' | 'RIGHT';
 	table: string;

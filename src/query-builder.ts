@@ -1,6 +1,7 @@
 /** Builds a QueryStructure for a SqlDialect to compile. Generates no SQL. */
 
 import type {
+	AggregateFunction,
 	DatabaseRow,
 	OrderDirection,
 	QueryStructure,
@@ -20,7 +21,13 @@ import {
 	omitUndefined,
 } from './internal';
 import type { AnyRelations, RelationPath } from './relation-paths';
-import type { ColumnRef, Patch, ValueFor, ValueForOperator } from './columns';
+import type {
+	ColumnKeys,
+	ColumnRef,
+	Patch,
+	ValueFor,
+	ValueForOperator,
+} from './columns';
 
 export class QueryBuilder<
 	T extends Model<T>,
@@ -74,7 +81,8 @@ export class QueryBuilder<
 		operatorOrValue?: unknown,
 		value?: unknown,
 	): this {
-		return this.addWhere(
+		return this.addCondition(
+			'where',
 			arguments.length,
 			columnOrGroup,
 			operatorOrValue,
@@ -94,7 +102,8 @@ export class QueryBuilder<
 		operatorOrValue?: unknown,
 		value?: unknown,
 	): this {
-		return this.addWhere(
+		return this.addCondition(
+			'where',
 			arguments.length,
 			columnOrGroup,
 			operatorOrValue,
@@ -116,7 +125,8 @@ export class QueryBuilder<
 		operatorOrValue?: unknown,
 		value?: unknown,
 	): this {
-		return this.addWhere(
+		return this.addCondition(
+			'where',
 			arguments.length,
 			columnOrGroup,
 			operatorOrValue,
@@ -138,7 +148,8 @@ export class QueryBuilder<
 		operatorOrValue?: unknown,
 		value?: unknown,
 	): this {
-		return this.addWhere(
+		return this.addCondition(
+			'where',
 			arguments.length,
 			columnOrGroup,
 			operatorOrValue,
@@ -148,8 +159,16 @@ export class QueryBuilder<
 		);
 	}
 
-	/** The one dispatch every where-variant goes through. */
-	private addWhere(
+	/** WHERE and HAVING hold the same shape of condition, so they share a list. */
+	private conditionList(kind: 'where' | 'having'): WhereCondition[] {
+		return kind === 'where'
+			? this.query.wheres
+			: (this.query.havings ??= []);
+	}
+
+	/** The one dispatch every where- and having-variant goes through. */
+	private addCondition(
+		kind: 'where' | 'having',
 		argc: number,
 		columnOrGroup: string | ((query: QueryBuilder<T, TRelations>) => void),
 		operatorOrValue: unknown,
@@ -157,11 +176,23 @@ export class QueryBuilder<
 		connector?: 'OR',
 		negated?: true,
 	): this {
+		const target = this.conditionList(kind);
+
 		if (typeof columnOrGroup === 'function') {
-			return this.pushGroup(columnOrGroup, connector, negated);
+			const nested = new QueryBuilder<T, TRelations>(
+				this.modelClass,
+				this.query.table,
+			);
+			columnOrGroup(nested);
+
+			const conditions = nested.conditionList(kind);
+			if (conditions.length > 0) {
+				target.push({ type: 'group', connector, negated, conditions });
+			}
+			return this;
 		}
 
-		this.query.wheres.push({
+		target.push({
 			...this.basicCondition(argc, columnOrGroup, operatorOrValue, value),
 			connector,
 			negated,
@@ -203,30 +234,6 @@ export class QueryBuilder<
 			...this.inCondition(String(column), values),
 			connector: 'OR',
 		});
-		return this;
-	}
-
-	/** Collects a callback's conditions into one group, dropping it if empty. */
-	private pushGroup(
-		build: (query: QueryBuilder<T, TRelations>) => void,
-		connector?: 'OR',
-		negated?: true,
-	): this {
-		const nested = new QueryBuilder<T, TRelations>(
-			this.modelClass,
-			this.query.table,
-		);
-		build(nested);
-
-		const conditions = nested.query.wheres;
-		if (conditions.length > 0) {
-			this.query.wheres.push({
-				type: 'group',
-				connector,
-				negated,
-				conditions,
-			});
-		}
 		return this;
 	}
 
@@ -379,21 +386,104 @@ export class QueryBuilder<
 		operator: Op,
 		value: ValueForOperator<T, K, Op>,
 	): this;
-	having(column: string, operatorOrValue?: unknown, value?: unknown): this {
-		(this.query.havings ??= []).push(
-			this.basicCondition(
-				arguments.length,
-				column,
-				operatorOrValue,
-				value,
-			),
+	/** A callback nests its conditions in one parenthesised group. */
+	having(group: (query: QueryBuilder<T, TRelations>) => void): this;
+	having(
+		columnOrGroup: string | ((query: QueryBuilder<T, TRelations>) => void),
+		operatorOrValue?: unknown,
+		value?: unknown,
+	): this {
+		return this.addCondition(
+			'having',
+			arguments.length,
+			columnOrGroup,
+			operatorOrValue,
+			value,
 		);
-		return this;
+	}
+
+	orHaving<K extends ColumnRef<T>>(column: K, value: ValueFor<T, K>): this;
+	orHaving<K extends ColumnRef<T>, Op extends WhereOperator>(
+		column: K,
+		operator: Op,
+		value: ValueForOperator<T, K, Op>,
+	): this;
+	orHaving(group: (query: QueryBuilder<T, TRelations>) => void): this;
+	orHaving(
+		columnOrGroup: string | ((query: QueryBuilder<T, TRelations>) => void),
+		operatorOrValue?: unknown,
+		value?: unknown,
+	): this {
+		return this.addCondition(
+			'having',
+			arguments.length,
+			columnOrGroup,
+			operatorOrValue,
+			value,
+			'OR',
+		);
+	}
+
+	havingNot<K extends ColumnRef<T>>(column: K, value: ValueFor<T, K>): this;
+	havingNot<K extends ColumnRef<T>, Op extends WhereOperator>(
+		column: K,
+		operator: Op,
+		value: ValueForOperator<T, K, Op>,
+	): this;
+	/** A callback negates the whole group: `NOT (a AND b)`. */
+	havingNot(group: (query: QueryBuilder<T, TRelations>) => void): this;
+	havingNot(
+		columnOrGroup: string | ((query: QueryBuilder<T, TRelations>) => void),
+		operatorOrValue?: unknown,
+		value?: unknown,
+	): this {
+		return this.addCondition(
+			'having',
+			arguments.length,
+			columnOrGroup,
+			operatorOrValue,
+			value,
+			undefined,
+			true,
+		);
+	}
+
+	orHavingNot<K extends ColumnRef<T>>(column: K, value: ValueFor<T, K>): this;
+	orHavingNot<K extends ColumnRef<T>, Op extends WhereOperator>(
+		column: K,
+		operator: Op,
+		value: ValueForOperator<T, K, Op>,
+	): this;
+	orHavingNot(group: (query: QueryBuilder<T, TRelations>) => void): this;
+	orHavingNot(
+		columnOrGroup: string | ((query: QueryBuilder<T, TRelations>) => void),
+		operatorOrValue?: unknown,
+		value?: unknown,
+	): this {
+		return this.addCondition(
+			'having',
+			arguments.length,
+			columnOrGroup,
+			operatorOrValue,
+			value,
+			'OR',
+			true,
+		);
 	}
 
 	/** Emitted verbatim, for the aggregates HAVING is usually written against. */
 	havingRaw(sql: string, bindings: QueryValue[] = []): this {
-		(this.query.havings ??= []).push({ type: 'raw', sql, bindings });
+		this.conditionList('having').push({ type: 'raw', sql, bindings });
+		return this;
+	}
+
+	orHavingRaw(sql: string, bindings: QueryValue[] = []): this {
+		this.conditionList('having').push({
+			type: 'raw',
+			connector: 'OR',
+			sql,
+			bindings,
+		});
 		return this;
 	}
 
@@ -528,6 +618,114 @@ export class QueryBuilder<
 			.query(compiled.sql, compiled.bindings);
 
 		return rows.length > 0;
+	}
+
+	/** How many rows match, without building any. */
+	async count(this: QueryBuilder<T, TRelations, false>): Promise<number> {
+		this.assertUngrouped('count');
+		this.applyRelationshipConstraint();
+
+		const orm = ORM.getInstance();
+		const compiled = orm.getDialect().compileCount(this.query);
+
+		const rows = await orm
+			.getAdapter()
+			.query(compiled.sql, compiled.bindings);
+
+		return Number(rows[0]?.count ?? 0);
+	}
+
+	/** Sum of one column; zero when nothing matches, as an empty sum is. */
+	async sum<K extends ColumnKeys<T>>(
+		this: QueryBuilder<T, TRelations, false>,
+		column: K,
+	): Promise<number> {
+		return Number((await this.aggregateValue('SUM', column)) ?? 0);
+	}
+
+	async avg<K extends ColumnKeys<T>>(
+		this: QueryBuilder<T, TRelations, false>,
+		column: K,
+	): Promise<number | null> {
+		const value = await this.aggregateValue('AVG', column);
+		return value === null ? null : Number(value);
+	}
+
+	/** Cast as a model's value would be, so a `date` column returns a Date. */
+	async min<K extends ColumnKeys<T>>(
+		this: QueryBuilder<T, TRelations, false>,
+		column: K,
+	): Promise<T[K] | null> {
+		return this.castedAggregate('MIN', column);
+	}
+
+	async max<K extends ColumnKeys<T>>(
+		this: QueryBuilder<T, TRelations, false>,
+		column: K,
+	): Promise<T[K] | null> {
+		return this.castedAggregate('MAX', column);
+	}
+
+	private async castedAggregate<K extends ColumnKeys<T>>(
+		fn: AggregateFunction,
+		column: K,
+	): Promise<T[K] | null> {
+		const value = await this.aggregateValue(fn, column);
+		if (value === null) return null;
+
+		const row = this.modelClass.casts.fromDatabaseRow({ [column]: value });
+		return row[column] as T[K];
+	}
+
+	private async aggregateValue(
+		fn: AggregateFunction,
+		column: string,
+	): Promise<unknown> {
+		this.assertUngrouped(fn.toLowerCase());
+		this.applyRelationshipConstraint();
+
+		const orm = ORM.getInstance();
+		const dialect = orm.getDialect();
+
+		if (typeof dialect.compileAggregate !== 'function') {
+			throw new Error(
+				`[orm] This dialect does not implement compileAggregate(), which ` +
+					`${fn.toLowerCase()}() needs. Implement it, or use ` +
+					`selectRaw('${fn}(column)') with aggregate().`,
+			);
+		}
+
+		const compiled = dialect.compileAggregate(
+			this.query,
+			fn,
+			assertIdentifier(String(column), 'column'),
+		);
+
+		const rows = await orm
+			.getAdapter()
+			.query(compiled.sql, compiled.bindings);
+
+		return rows[0]?.aggregate ?? null;
+	}
+
+	/** One column's values, cast as a model's would be. */
+	async pluck<K extends ColumnKeys<T>>(
+		this: QueryBuilder<T, TRelations, false>,
+		column: K,
+	): Promise<T[K][]> {
+		const rows = await this.clone().select(column).aggregate<DatabaseRow>();
+
+		const caster = this.modelClass.casts;
+		return rows.map(row => caster.fromDatabaseRow(row)[column] as T[K]);
+	}
+
+	/** The first row's value for one column, or null when nothing matches. */
+	async value<K extends ColumnKeys<T>>(
+		this: QueryBuilder<T, TRelations, false>,
+		column: K,
+	): Promise<T[K] | null> {
+		const [first] = await this.clone().limit(1).pluck(column);
+		return first ?? null;
 	}
 
 	async paginate(

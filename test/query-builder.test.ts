@@ -9,9 +9,11 @@ import {
 	Fragment,
 	Line,
 	Passage,
+	ProjectFile,
 	Role,
 	User,
 } from './helpers/models';
+import { ORM } from '../src/orm';
 import { SQLiteDialect } from '../src/plugins/dialects/sqlite';
 import { freshDatabase } from './helpers/setup';
 
@@ -962,5 +964,173 @@ describe('builder reuse', () => {
 		await query.first();
 
 		expect(query.getQuery().wheres).toHaveLength(1);
+	});
+});
+
+describe('having', () => {
+	const compile = (query: { getQuery(): never }) =>
+		new SQLiteDialect().compileSelect(query.getQuery() as never).sql;
+
+	test('orHaving and havingNot mirror where', () => {
+		const query = User.query().groupBy('status');
+		const builder = query as never as {
+			having(c: string, v: unknown): typeof builder;
+			orHaving(c: string, v: unknown): typeof builder;
+			havingNot(c: string, v: unknown): typeof builder;
+		};
+
+		builder
+			.having('status', 'a')
+			.orHaving('status', 'b')
+			.havingNot('name', 'x');
+
+		expect(
+			compile(query as never)
+				.split('HAVING')[1]!
+				.trim(),
+		).toBe('"status" = ? OR "status" = ? AND NOT "name" = ?');
+	});
+
+	test('a having group is parenthesised', () => {
+		const query = User.query().groupBy('status');
+
+		(
+			query as never as {
+				having(build: (group: unknown) => void): unknown;
+			}
+		).having(group => {
+			const g = group as never as {
+				having(c: string, op: string, v: unknown): unknown;
+				orHaving(c: string, op: string, v: unknown): unknown;
+			};
+			g.having('age', '>', 1);
+			g.orHaving('age', '<', 0);
+		});
+
+		expect(compile(query as never)).toContain('("age" > ? OR "age" < ?)');
+	});
+});
+
+describe('aggregates', () => {
+	const seed = async () => {
+		await freshDatabase();
+		await User.create({ name: 'ann', status: 'active' });
+		await User.create({ name: 'bob', status: 'active' });
+		await User.create({ name: 'cid', status: 'archived' });
+	};
+
+	test('count() counts matching rows', async () => {
+		await seed();
+		expect(await User.query().count()).toBe(3);
+		expect(await User.query().where('status', 'active').count()).toBe(2);
+	});
+
+	test('count() refuses a grouped query', async () => {
+		await seed();
+		await expect(
+			(
+				User.query().groupBy('status') as never as {
+					count(): Promise<number>;
+				}
+			).count(),
+		).rejects.toThrow(/grouped/);
+	});
+
+	test('pluck() returns one column, cast as get() would', async () => {
+		await seed();
+		expect(await User.query().orderBy('name').pluck('name')).toEqual([
+			'ann',
+			'bob',
+			'cid',
+		]);
+
+		await freshDatabase();
+		const file = await ProjectFile.create({
+			path: 'p',
+			name: 'n',
+			size: 1,
+			mime: 'm',
+			extension: 'e',
+			ctime: 1,
+			mtime: 1,
+		});
+		const [when] = await ProjectFile.query().pluck('created_at');
+		expect(when).toBeInstanceOf(Date);
+		expect(when!.getTime()).toBe(file.created_at.getTime());
+	});
+
+	test('sum, avg, min and max', async () => {
+		await freshDatabase();
+		await User.create({ name: 'a', age: 10, status: 'active' });
+		await User.create({ name: 'b', age: 20, status: 'active' });
+		await User.create({ name: 'c', age: 60, status: 'archived' });
+
+		expect(await User.query().sum('age')).toBe(90);
+		expect(await User.query().where('status', 'active').sum('age')).toBe(
+			30,
+		);
+		expect(await User.query().avg('age')).toBe(30);
+		expect(await User.query().min('age')).toBe(10);
+		expect(await User.query().max('age')).toBe(60);
+	});
+
+	test('an empty result sums to zero and averages to null', async () => {
+		await freshDatabase();
+
+		expect(await User.query().sum('age')).toBe(0);
+		expect(await User.query().avg('age')).toBeNull();
+		expect(await User.query().min('age')).toBeNull();
+	});
+
+	test('min() and max() cast the way get() does', async () => {
+		await freshDatabase();
+		const file = await ProjectFile.create({
+			path: 'p',
+			name: 'n',
+			size: 1,
+			mime: 'm',
+			extension: 'e',
+			ctime: 1,
+			mtime: 1,
+		});
+
+		const earliest = await ProjectFile.query().min('created_at');
+		expect(earliest).toBeInstanceOf(Date);
+		expect(earliest!.getTime()).toBe(file.created_at.getTime());
+	});
+
+	test('a dialect without compileAggregate says so', async () => {
+		await freshDatabase();
+		const dialect = ORM.getInstance().getDialect() as {
+			compileAggregate?: unknown;
+		};
+		const implementation = dialect.compileAggregate;
+		dialect.compileAggregate = undefined;
+
+		await expect(User.query().sum('age')).rejects.toThrow(
+			/does not implement compileAggregate/,
+		);
+
+		dialect.compileAggregate = implementation;
+	});
+
+	test('an aggregate column is identifier-checked', async () => {
+		await freshDatabase();
+
+		await expect(
+			(
+				User.query() as never as {
+					sum(c: string): Promise<number>;
+				}
+			).sum('age) FROM users; DROP TABLE users--'),
+		).rejects.toThrow(/Unsafe column/);
+	});
+
+	test('value() returns the first, or null', async () => {
+		await seed();
+		expect(await User.query().orderBy('name').value('name')).toBe('ann');
+		expect(
+			await User.query().where('name', 'zzz').value('name'),
+		).toBeNull();
 	});
 });

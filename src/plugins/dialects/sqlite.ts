@@ -1,5 +1,6 @@
 import type { SqlDialect } from '../../dialect';
 import type {
+	AggregateFunction,
 	CompiledQuery,
 	OrderByClause,
 	QueryStructure,
@@ -344,6 +345,25 @@ export class SQLiteDialect implements SqlDialect {
 	compileCount(query: QueryStructure): CompiledQuery {
 		const bindings: QueryValue[] = [];
 		let sql = `SELECT COUNT(*) as count FROM ${this.escapeIdentifier(query.table)}`;
+		sql += this.compileJoins(query);
+
+		if (query.wheres.length > 0) {
+			sql += ` WHERE ${this.compileWheres(query.wheres, bindings)}`;
+		}
+
+		return this.compiled(sql, bindings);
+	}
+
+	compileAggregate(
+		query: QueryStructure,
+		fn: AggregateFunction,
+		column: string,
+	): CompiledQuery {
+		const bindings: QueryValue[] = [];
+
+		let sql =
+			`SELECT ${fn}(${this.escapeIdentifier(column)}) as aggregate ` +
+			`FROM ${this.escapeIdentifier(query.table)}`;
 		sql += this.compileJoins(query);
 
 		if (query.wheres.length > 0) {
