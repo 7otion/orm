@@ -6,7 +6,7 @@
  */
 /**
  * Recursion budget. Model graphs are cyclic, so an uncapped walk never
- * terminates. Four levels covers realistic graphs.
+ * terminates. A budget of D permits paths of D + 1 segments.
  */
 type Decrement = [never, 0, 1, 2, 3, 4, 5];
 type Depth = 0 | 1 | 2 | 3 | 4 | 5;
@@ -22,7 +22,7 @@ type RelationsOf<TClass> = TClass extends {
  * A registry with an index signature rather than known keys degrades to
  * `string`, so models without a typed literal keep working.
  */
-export type RelationPath<TRelations, D extends Depth = 4> = string extends keyof TRelations ? string : [D] extends [never] ? never : {
+export type RelationPath<TRelations, D extends Depth = 5> = string extends keyof TRelations ? string : [D] extends [never] ? never : {
     [K in keyof TRelations & string]: K | `${K}.${RelationPath<RelationsOf<RelatedClassOf<TRelations[K]>>, Decrement[D] & Depth>}`;
 }[keyof TRelations & string];
 export type AnyRelations = Record<string, any>;

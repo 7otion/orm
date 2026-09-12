@@ -1,9 +1,23 @@
 /** Builds a QueryStructure for a SqlDialect to compile. Generates no SQL. */
-import type { OrderDirection, QueryStructure, QueryValue, WhereOperator } from './types';
+import type { DatabaseRow, OrderDirection, QueryStructure, QueryValue, WhereOperator } from './types';
 import type { Model, ModelStatic } from './model';
 import type { AnyRelations, RelationPath } from './relation-paths';
 import type { ColumnRef, Patch, ValueFor, ValueForOperator } from './columns';
-export declare class QueryBuilder<T extends Model<T>, TRelations = AnyRelations> {
+/**
+ * `Grouped` is a phantom flag, erased at runtime. `groupBy()` flips it, and the
+ * methods that hydrate rows into models take a `this` typed against `false`, so
+ * a grouped query cannot reach them.
+ */
+export declare class QueryBuilder<T extends Model<T>, TRelations = AnyRelations, Grouped extends boolean = false> {
+    /**
+     * @internal Phantom marker. `declare` emits nothing, so no instance ever
+     * carries it at runtime.
+     *
+     * It exists so that `Grouped` occupies a member position. Without one, every
+     * instantiation is structurally identical and mutually assignable, which
+     * makes the `this` parameters below accept a grouped builder anyway.
+     */
+    readonly __grouped: Grouped;
     private query;
     private modelClass;
     private eagerLoad;
@@ -19,8 +33,19 @@ export declare class QueryBuilder<T extends Model<T>, TRelations = AnyRelations>
      */
     where<K extends ColumnRef<T>>(column: K, value: ValueFor<T, K>): this;
     where<K extends ColumnRef<T>, Op extends WhereOperator>(column: K, operator: Op, value: ValueForOperator<T, K, Op>): this;
+    /** A callback nests its conditions in one parenthesised group. */
+    where(group: (query: QueryBuilder<T, TRelations>) => void): this;
+    orWhere<K extends ColumnRef<T>>(column: K, value: ValueFor<T, K>): this;
+    orWhere<K extends ColumnRef<T>, Op extends WhereOperator>(column: K, operator: Op, value: ValueForOperator<T, K, Op>): this;
+    orWhere(group: (query: QueryBuilder<T, TRelations>) => void): this;
     whereRaw(sql: string, bindings?: QueryValue[]): this;
+    orWhereRaw(sql: string, bindings?: QueryValue[]): this;
     whereIn<K extends ColumnRef<T>>(column: K, values: ValueFor<T, K>[]): this;
+    orWhereIn<K extends ColumnRef<T>>(column: K, values: ValueFor<T, K>[]): this;
+    /** Collects a callback's conditions into one group, dropping it if empty. */
+    private pushGroup;
+    private basicCondition;
+    private inCondition;
     join(type: 'INNER' | 'LEFT' | 'RIGHT', table: string, first: string, operator: string, second: string): this;
     innerJoin(table: string, first: string, operator: string, second: string): this;
     leftJoin(table: string, first: string, operator: string, second: string): this;
@@ -34,22 +59,34 @@ export declare class QueryBuilder<T extends Model<T>, TRelations = AnyRelations>
     /** Emitted verbatim, for aggregates and computed columns. */
     selectRaw(sql: string): this;
     /**
+     * Groups the rows, which stops them being model rows: read them with
+     * `aggregate()`, since `get()` and the other hydrating terminals are typed
+     * out of reach from here.
+     */
+    groupBy(...columns: ColumnRef<T>[]): QueryBuilder<T, TRelations, true>;
+    /**
+     * Rows exactly as the adapter returned them. Nothing is hydrated, so a
+     * projection that is not a row of `T` — a COUNT, a GROUP BY — stays honest
+     * instead of arriving as a model with absent columns and no identity.
+     */
+    aggregate<R = DatabaseRow>(): Promise<R[]>;
+    /**
      * Eager load relations, including nested dotted paths. Names are checked
      * against the model's `relationships` literal; models without one accept
      * any string.
      */
-    with(...relations: RelationPath<TRelations>[]): this;
+    with(this: QueryBuilder<T, TRelations, false>, ...relations: RelationPath<TRelations>[]): QueryBuilder<T, TRelations, false>;
     setRelationshipConstraint(constraint: (query: QueryBuilder<T, TRelations>) => void): this;
-    get(): Promise<T[]>;
-    first(): Promise<T | null>;
-    paginate(page?: number, limit?: number): Promise<{
+    get(this: QueryBuilder<T, TRelations, false>): Promise<T[]>;
+    first(this: QueryBuilder<T, TRelations, false>): Promise<T | null>;
+    paginate(this: QueryBuilder<T, TRelations, false>, page?: number, limit?: number): Promise<{
         data: T[];
         total: number;
     }>;
     /** Deletes matching rows in one queued statement, returning the count. */
-    delete(): Promise<number>;
+    delete(this: QueryBuilder<T, TRelations, false>): Promise<number>;
     /** Updates matching rows in one queued statement, returning the count. */
-    update(data: Patch<T>): Promise<number>;
+    update(this: QueryBuilder<T, TRelations, false>, data: Patch<T>): Promise<number>;
     private hydrate;
     private loadRelationships;
     private loadNestedRelationship;

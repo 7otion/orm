@@ -16,6 +16,14 @@ export declare class SQLiteDialect implements SqlDialect {
     compileDeleteQuery(query: QueryStructure): CompiledQuery;
     compileUpdateQuery(query: QueryStructure, data: Record<string, QueryValue>): CompiledQuery;
     compileCount(query: QueryStructure): CompiledQuery;
+    /**
+     * Compiles a condition list, joining each to the one before it with its own
+     * connector. `AND` binds tighter than `OR` in SQL, so a flat list is emitted
+     * as written rather than parenthesised — grouping is the caller's to state.
+     */
+    private compileWheres;
+    /** Bindings are pushed in traversal order, so nesting cannot reorder them. */
+    private compileCondition;
     /** Quotes an identifier so reserved words and dots are safe. */
     private escapeIdentifier;
 }

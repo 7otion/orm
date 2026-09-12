@@ -24,12 +24,15 @@ export type OrderDirection = 'asc' | 'desc' | 'ASC' | 'DESC' | 'raw';
 export type WhereValue = QueryValue | QueryValue[];
 
 export interface WhereCondition {
-	type: 'basic' | 'raw';
+	type: 'basic' | 'raw' | 'group';
+	/** How this joins to the condition before it; the first in a list has none. */
+	connector?: 'AND' | 'OR';
 	column?: string;
 	operator?: WhereOperator;
 	value?: WhereValue;
 	sql?: string;
 	bindings?: QueryValue[];
+	conditions?: WhereCondition[];
 }
 
 export interface OrderByClause {

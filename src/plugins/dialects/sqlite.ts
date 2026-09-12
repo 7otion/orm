@@ -1,5 +1,10 @@
 import type { SqlDialect } from '../../dialect';
-import type { CompiledQuery, QueryStructure, QueryValue } from '../../types';
+import type {
+	CompiledQuery,
+	QueryStructure,
+	QueryValue,
+	WhereCondition,
+} from '../../types';
 
 export class SQLiteDialect implements SqlDialect {
 	/**
@@ -38,39 +43,7 @@ export class SQLiteDialect implements SqlDialect {
 		}
 
 		if (query.wheres.length > 0) {
-			sql += ' WHERE ';
-			const whereClauses: string[] = [];
-
-			for (const where of query.wheres) {
-				if (where.type === 'raw') {
-					whereClauses.push(`(${where.sql})`);
-					if (where.bindings) {
-						bindings.push(...where.bindings);
-					}
-				} else {
-					const { column, operator, value } = where;
-
-					if (operator === 'IN' || operator === 'NOT IN') {
-						const values = Array.isArray(value) ? value : [value];
-						const placeholders = values.map(() => '?').join(', ');
-						whereClauses.push(
-							`${this.escapeIdentifier(column!)} ${operator} (${placeholders})`,
-						);
-						bindings.push(...values);
-					} else if (operator === 'IS' || operator === 'IS NOT') {
-						whereClauses.push(
-							`${this.escapeIdentifier(column!)} ${operator} NULL`,
-						);
-					} else {
-						whereClauses.push(
-							`${this.escapeIdentifier(column!)} ${operator} ?`,
-						);
-						bindings.push(value as QueryValue);
-					}
-				}
-			}
-
-			sql += whereClauses.join(' AND ');
+			sql += ` WHERE ${this.compileWheres(query.wheres, bindings)}`;
 		}
 
 		if (query.groups && query.groups.length > 0) {
@@ -207,39 +180,7 @@ export class SQLiteDialect implements SqlDialect {
 		}
 
 		if (query.wheres.length > 0) {
-			sql += ' WHERE ';
-			const whereClauses: string[] = [];
-
-			for (const where of query.wheres) {
-				if (where.type === 'raw') {
-					whereClauses.push(`(${where.sql})`);
-					if (where.bindings) {
-						bindings.push(...where.bindings);
-					}
-				} else {
-					const { column, operator, value } = where;
-
-					if (operator === 'IN' || operator === 'NOT IN') {
-						const values = Array.isArray(value) ? value : [value];
-						const placeholders = values.map(() => '?').join(', ');
-						whereClauses.push(
-							`${this.escapeIdentifier(column!)} ${operator} (${placeholders})`,
-						);
-						bindings.push(...values);
-					} else if (operator === 'IS' || operator === 'IS NOT') {
-						whereClauses.push(
-							`${this.escapeIdentifier(column!)} ${operator} NULL`,
-						);
-					} else {
-						whereClauses.push(
-							`${this.escapeIdentifier(column!)} ${operator} ?`,
-						);
-						bindings.push(value as QueryValue);
-					}
-				}
-			}
-
-			sql += whereClauses.join(' AND ');
+			sql += ` WHERE ${this.compileWheres(query.wheres, bindings)}`;
 		}
 
 		// Accepted but semantically inert for a delete.
@@ -280,39 +221,7 @@ export class SQLiteDialect implements SqlDialect {
 		let sql = `UPDATE ${query.table} SET ${setClauses}`;
 
 		if (query.wheres.length > 0) {
-			sql += ' WHERE ';
-			const whereClauses: string[] = [];
-
-			for (const where of query.wheres) {
-				if (where.type === 'raw') {
-					whereClauses.push(`(${where.sql})`);
-					if (where.bindings) {
-						bindings.push(...where.bindings);
-					}
-				} else {
-					const { column, operator, value } = where;
-
-					if (operator === 'IN' || operator === 'NOT IN') {
-						const values = Array.isArray(value) ? value : [value];
-						const placeholders = values.map(() => '?').join(', ');
-						whereClauses.push(
-							`${this.escapeIdentifier(column!)} ${operator} (${placeholders})`,
-						);
-						bindings.push(...values);
-					} else if (operator === 'IS' || operator === 'IS NOT') {
-						whereClauses.push(
-							`${this.escapeIdentifier(column!)} ${operator} NULL`,
-						);
-					} else {
-						whereClauses.push(
-							`${this.escapeIdentifier(column!)} ${operator} ?`,
-						);
-						bindings.push(value as QueryValue);
-					}
-				}
-			}
-
-			sql += whereClauses.join(' AND ');
+			sql += ` WHERE ${this.compileWheres(query.wheres, bindings)}`;
 		}
 
 		return this.compiled(sql, bindings);
@@ -329,42 +238,61 @@ export class SQLiteDialect implements SqlDialect {
 		}
 
 		if (query.wheres.length > 0) {
-			sql += ' WHERE ';
-			const whereClauses: string[] = [];
-
-			for (const where of query.wheres) {
-				if (where.type === 'raw') {
-					whereClauses.push(`(${where.sql})`);
-					if (where.bindings) {
-						bindings.push(...where.bindings);
-					}
-				} else {
-					const { column, operator, value } = where;
-
-					if (operator === 'IN' || operator === 'NOT IN') {
-						const values = Array.isArray(value) ? value : [value];
-						const placeholders = values.map(() => '?').join(', ');
-						whereClauses.push(
-							`${this.escapeIdentifier(column!)} ${operator} (${placeholders})`,
-						);
-						bindings.push(...values);
-					} else if (operator === 'IS' || operator === 'IS NOT') {
-						whereClauses.push(
-							`${this.escapeIdentifier(column!)} ${operator} NULL`,
-						);
-					} else {
-						whereClauses.push(
-							`${this.escapeIdentifier(column!)} ${operator} ?`,
-						);
-						bindings.push(value as QueryValue);
-					}
-				}
-			}
-
-			sql += whereClauses.join(' AND ');
+			sql += ` WHERE ${this.compileWheres(query.wheres, bindings)}`;
 		}
 
 		return this.compiled(sql, bindings);
+	}
+
+	/**
+	 * Compiles a condition list, joining each to the one before it with its own
+	 * connector. `AND` binds tighter than `OR` in SQL, so a flat list is emitted
+	 * as written rather than parenthesised — grouping is the caller's to state.
+	 */
+	private compileWheres(
+		conditions: WhereCondition[],
+		bindings: QueryValue[],
+	): string {
+		return conditions
+			.map((condition, index) => {
+				const clause = this.compileCondition(condition, bindings);
+				if (index === 0) return clause;
+				return `${condition.connector ?? 'AND'} ${clause}`;
+			})
+			.join(' ');
+	}
+
+	/** Bindings are pushed in traversal order, so nesting cannot reorder them. */
+	private compileCondition(
+		condition: WhereCondition,
+		bindings: QueryValue[],
+	): string {
+		if (condition.type === 'group') {
+			return `(${this.compileWheres(condition.conditions ?? [], bindings)})`;
+		}
+
+		if (condition.type === 'raw') {
+			if (condition.bindings) {
+				bindings.push(...condition.bindings);
+			}
+			return `(${condition.sql})`;
+		}
+
+		const { column, operator, value } = condition;
+
+		if (operator === 'IN' || operator === 'NOT IN') {
+			const values = Array.isArray(value) ? value : [value];
+			const placeholders = values.map(() => '?').join(', ');
+			bindings.push(...values);
+			return `${this.escapeIdentifier(column!)} ${operator} (${placeholders})`;
+		}
+
+		if (operator === 'IS' || operator === 'IS NOT') {
+			return `${this.escapeIdentifier(column!)} ${operator} NULL`;
+		}
+
+		bindings.push(value as QueryValue);
+		return `${this.escapeIdentifier(column!)} ${operator} ?`;
 	}
 
 	/** Quotes an identifier so reserved words and dots are safe. */

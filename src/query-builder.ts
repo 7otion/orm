@@ -72,28 +72,45 @@ export class QueryBuilder<
 		operator: Op,
 		value: ValueForOperator<T, K, Op>,
 	): this;
+	/** A callback nests its conditions in one parenthesised group. */
+	where(group: (query: QueryBuilder<T, TRelations>) => void): this;
 	// Implementation signature: not callable from outside, so it stays wide
-	// enough to cover both overloads.
-	where(column: string, operatorOrValue: unknown, value?: unknown): this {
-		let operator: WhereOperator;
-		let actualValue: WhereValue;
-
-		if (value === undefined) {
-			operator = '=';
-			actualValue = operatorOrValue as WhereValue;
-		} else {
-			operator = operatorOrValue as WhereOperator;
-			actualValue = value as WhereValue;
+	// enough to cover every overload.
+	where(
+		columnOrGroup: string | ((query: QueryBuilder<T, TRelations>) => void),
+		operatorOrValue?: unknown,
+		value?: unknown,
+	): this {
+		if (typeof columnOrGroup === 'function') {
+			return this.pushGroup(columnOrGroup);
 		}
 
-		const condition: WhereCondition = {
-			type: 'basic',
-			column: assertIdentifier(String(column), 'column'),
-			operator,
-			value: actualValue,
-		};
+		this.query.wheres.push(
+			this.basicCondition(columnOrGroup, operatorOrValue, value),
+		);
+		return this;
+	}
 
-		this.query.wheres.push(condition);
+	orWhere<K extends ColumnRef<T>>(column: K, value: ValueFor<T, K>): this;
+	orWhere<K extends ColumnRef<T>, Op extends WhereOperator>(
+		column: K,
+		operator: Op,
+		value: ValueForOperator<T, K, Op>,
+	): this;
+	orWhere(group: (query: QueryBuilder<T, TRelations>) => void): this;
+	orWhere(
+		columnOrGroup: string | ((query: QueryBuilder<T, TRelations>) => void),
+		operatorOrValue?: unknown,
+		value?: unknown,
+	): this {
+		if (typeof columnOrGroup === 'function') {
+			return this.pushGroup(columnOrGroup, 'OR');
+		}
+
+		this.query.wheres.push({
+			...this.basicCondition(columnOrGroup, operatorOrValue, value),
+			connector: 'OR',
+		});
 		return this;
 	}
 
@@ -108,14 +125,81 @@ export class QueryBuilder<
 		return this;
 	}
 
-	whereIn<K extends ColumnRef<T>>(column: K, values: ValueFor<T, K>[]): this {
+	orWhereRaw(sql: string, bindings: QueryValue[] = []): this {
 		this.query.wheres.push({
-			type: 'basic',
-			column: assertIdentifier(String(column), 'column'),
-			operator: 'IN',
-			value: values as WhereValue,
+			type: 'raw',
+			connector: 'OR',
+			sql,
+			bindings,
 		});
 		return this;
+	}
+
+	whereIn<K extends ColumnRef<T>>(column: K, values: ValueFor<T, K>[]): this {
+		this.query.wheres.push(this.inCondition(String(column), values));
+		return this;
+	}
+
+	orWhereIn<K extends ColumnRef<T>>(
+		column: K,
+		values: ValueFor<T, K>[],
+	): this {
+		this.query.wheres.push({
+			...this.inCondition(String(column), values),
+			connector: 'OR',
+		});
+		return this;
+	}
+
+	/** Collects a callback's conditions into one group, dropping it if empty. */
+	private pushGroup(
+		build: (query: QueryBuilder<T, TRelations>) => void,
+		connector?: 'OR',
+	): this {
+		const nested = new QueryBuilder<T, TRelations>(
+			this.modelClass,
+			this.query.table,
+		);
+		build(nested);
+
+		const conditions = nested.query.wheres;
+		if (conditions.length > 0) {
+			this.query.wheres.push({ type: 'group', connector, conditions });
+		}
+		return this;
+	}
+
+	private basicCondition(
+		column: string,
+		operatorOrValue: unknown,
+		value: unknown,
+	): WhereCondition {
+		let operator: WhereOperator;
+		let actualValue: WhereValue;
+
+		if (value === undefined) {
+			operator = '=';
+			actualValue = operatorOrValue as WhereValue;
+		} else {
+			operator = operatorOrValue as WhereOperator;
+			actualValue = value as WhereValue;
+		}
+
+		return {
+			type: 'basic',
+			column: assertIdentifier(column, 'column'),
+			operator,
+			value: actualValue,
+		};
+	}
+
+	private inCondition(column: string, values: unknown[]): WhereCondition {
+		return {
+			type: 'basic',
+			column: assertIdentifier(column, 'column'),
+			operator: 'IN',
+			value: values as WhereValue,
+		};
 	}
 
 	join(

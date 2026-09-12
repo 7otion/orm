@@ -296,6 +296,43 @@ export function _queryIdentifiersAreChecked() {
 	q.where('lines', 1);
 }
 
+/* ── or / nested groups are checked exactly like where ──────────────────── */
+
+export function _orWhereIsCheckedLikeWhere() {
+	const q = Passage.query();
+	type Q = QueryBuilder<Passage, PassageRelations>;
+
+	expectType<Equal<ReturnType<typeof q.orWhere>, Q>>();
+	expectType<Equal<ReturnType<typeof q.orWhereIn>, Q>>();
+
+	q.orWhere('status', 'draft');
+	q.orWhere('sort', '>', 1);
+	q.orWhereIn('ref', ['intro', 'hall']);
+
+	// @ts-expect-error - 'nope' is not a column of Passage.
+	q.orWhere('nope', 'draft');
+	// @ts-expect-error - 'sort' is a number.
+	q.orWhere('sort', 'not-a-number');
+	// @ts-expect-error - '>>>' is not a WhereOperator.
+	q.orWhere('sort', '>>>', 1);
+	// @ts-expect-error - orWhereIn values follow the column type.
+	q.orWhereIn('sort', ['a']);
+}
+
+export function _groupCallbacksReceiveATypedBuilder() {
+	Passage.query().where(group => {
+		expectType<
+			Equal<typeof group, QueryBuilder<Passage, PassageRelations>>
+		>();
+		group.where('status', 'draft').orWhere('sort', '>', 1);
+	});
+
+	// @ts-expect-error - the nested builder is checked the same way.
+	Passage.query().where(group => group.where('nope', 1));
+	// @ts-expect-error - and so is the or-joined form.
+	Passage.query().orWhere(group => group.orWhere('nope', 1));
+}
+
 export function _qualifiedColumnsSurviveForJoins() {
 	// A join compares against a table the model type knows nothing about, so
 	// `table.column` stays open and is validated at runtime instead.

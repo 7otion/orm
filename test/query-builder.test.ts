@@ -134,6 +134,125 @@ describe('where', () => {
 	});
 });
 
+describe('or and nested groups', () => {
+	test('orWhere joins with OR', async () => {
+		await freshDatabase();
+		await seedUsers();
+
+		const rows = await User.query()
+			.where('name', 'Ann')
+			.orWhere('name', 'Cid')
+			.get();
+		expect(rows.map(r => r.name).sort()).toEqual(['Ann', 'Cid']);
+	});
+
+	test('a callback nests its conditions in one parenthesised group', async () => {
+		const { adapter } = await freshDatabase();
+		await seedUsers();
+
+		adapter.clearLog();
+		const rows = await User.query()
+			.where('status', 'active')
+			.where(q => q.where('age', '>', 25).orWhere('name', 'Bob'))
+			.get();
+
+		const select = adapter.log.find(e => e.kind === 'query')!;
+		expect(select.sql).toContain(
+			'"status" = ? AND ("age" > ? OR "name" = ?)',
+		);
+		expect(rows.map(r => r.name).sort()).toEqual(['Ann', 'Bob']);
+	});
+
+	test('groups nest inside groups', async () => {
+		const { adapter } = await freshDatabase();
+		await seedUsers();
+
+		adapter.clearLog();
+		await User.query()
+			.where(q =>
+				q
+					.where('age', '>', 10)
+					.orWhere(inner =>
+						inner.where('name', 'Dee').where('status', 'IS', null),
+					),
+			)
+			.get();
+
+		const select = adapter.log.find(e => e.kind === 'query')!;
+		expect(select.sql).toContain(
+			'("age" > ? OR ("name" = ? AND "status" IS NULL))',
+		);
+	});
+
+	test('bindings keep traversal order across raw and nested conditions', async () => {
+		const { adapter } = await freshDatabase();
+		await seedUsers();
+
+		adapter.clearLog();
+		await User.query()
+			.where('name', 'Ann')
+			.where(q => q.whereRaw('age > ?', [18]).orWhereIn('name', ['Bob']))
+			.orWhereRaw('status = ?', ['inactive'])
+			.get();
+
+		const select = adapter.log.find(e => e.kind === 'query')!;
+		expect(select.params).toEqual(['Ann', 18, 'Bob', 'inactive']);
+	});
+
+	test('an empty callback adds nothing', async () => {
+		const { adapter } = await freshDatabase();
+		await seedUsers();
+
+		adapter.clearLog();
+		const rows = await User.query()
+			.where(() => {})
+			.get();
+
+		const select = adapter.log.find(e => e.kind === 'query')!;
+		expect(select.sql).not.toContain('WHERE');
+		expect(rows).toHaveLength(4);
+	});
+
+	test('a flat chain is emitted as written, AND binding tighter than OR', async () => {
+		const { adapter } = await freshDatabase();
+		await seedUsers();
+
+		adapter.clearLog();
+		await User.query()
+			.where('status', 'active')
+			.where('age', '>', 25)
+			.orWhere('name', 'Cid')
+			.get();
+
+		// SQL reads this as (status AND age) OR name; grouping is opt-in.
+		const select = adapter.log.find(e => e.kind === 'query')!;
+		expect(select.sql).toContain(
+			'"status" = ? AND "age" > ? OR "name" = ?',
+		);
+	});
+
+	test('groups compile in deletes, updates and counts too', async () => {
+		await freshDatabase();
+		await seedUsers();
+
+		const affected = await User.query()
+			.where(q => q.where('name', 'Ann').orWhere('name', 'Bob'))
+			.update({ status: 'archived' });
+		expect(affected).toBe(2);
+
+		const { total } = await User.query()
+			.where(q => q.where('name', 'Ann').orWhere('name', 'Cid'))
+			.paginate(1, 10);
+		expect(total).toBe(2);
+
+		const deleted = await User.query()
+			.where(q => q.where('name', 'Ann').orWhere('name', 'Dee'))
+			.delete();
+		expect(deleted).toBe(2);
+		expect(await User.query().get()).toHaveLength(2);
+	});
+});
+
 describe('ordering, limiting and projection', () => {
 	test('orderBy ascending and descending', async () => {
 		await freshDatabase();
