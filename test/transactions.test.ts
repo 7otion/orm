@@ -5,28 +5,32 @@
 import { describe, expect, test } from 'bun:test';
 
 import { ORM } from '../src/orm';
+import type { Transaction } from '../src/transaction';
 
 import { Passage } from './helpers/models';
 import { freshDatabase } from './helpers/setup';
 
-function newPassage(ref: string): Promise<Passage> {
-	return Passage.create({
-		ref,
-		title: ref,
-		status: 'draft',
-		sort: 0,
-		auto_continue: 0,
-		allow_back: 0,
-	});
+function newPassage(ref: string, tx?: Transaction): Promise<Passage> {
+	return Passage.create(
+		{
+			ref,
+			title: ref,
+			status: 'draft',
+			sort: 0,
+			auto_continue: 0,
+			allow_back: 0,
+		},
+		tx,
+	);
 }
 
 describe('transactions', () => {
 	test('a successful transaction commits every write', async () => {
 		await freshDatabase();
 
-		await ORM.getInstance().transaction(async () => {
-			await newPassage('a');
-			await newPassage('b');
+		await ORM.getInstance().transaction(async tx => {
+			await newPassage('a', tx);
+			await newPassage('b', tx);
 		});
 
 		expect(await Passage.query().get()).toHaveLength(2);
@@ -36,8 +40,8 @@ describe('transactions', () => {
 		await freshDatabase();
 
 		await expect(
-			ORM.getInstance().transaction(async () => {
-				await newPassage('a');
+			ORM.getInstance().transaction(async tx => {
+				await newPassage('a', tx);
 				throw new Error('boom');
 			}),
 		).rejects.toThrow('boom');
@@ -48,8 +52,8 @@ describe('transactions', () => {
 	test('the callback return value is passed through', async () => {
 		await freshDatabase();
 
-		const result = await ORM.getInstance().transaction(async () => {
-			await newPassage('a');
+		const result = await ORM.getInstance().transaction(async tx => {
+			await newPassage('a', tx);
 			return 'done';
 		});
 
@@ -59,10 +63,10 @@ describe('transactions', () => {
 	test('a nested transaction defers to the outermost one', async () => {
 		const { adapter } = await freshDatabase();
 
-		await ORM.getInstance().transaction(async () => {
-			await newPassage('a');
-			await ORM.getInstance().transaction(async () => {
-				await newPassage('b');
+		await ORM.getInstance().transaction(async tx => {
+			await newPassage('a', tx);
+			await ORM.getInstance().transaction(async inner => {
+				await newPassage('b', inner);
 			});
 		});
 
@@ -75,10 +79,10 @@ describe('transactions', () => {
 		await freshDatabase();
 
 		await expect(
-			ORM.getInstance().transaction(async () => {
-				await newPassage('a');
-				await ORM.getInstance().transaction(async () => {
-					await newPassage('b');
+			ORM.getInstance().transaction(async tx => {
+				await newPassage('a', tx);
+				await ORM.getInstance().transaction(async inner => {
+					await newPassage('b', inner);
 					throw new Error('inner');
 				});
 			}),
@@ -161,5 +165,98 @@ describe('lifecycle', () => {
 		const second = await freshDatabase();
 		expect(second.adapter).not.toBe(first.adapter);
 		expect(await Passage.query().get()).toHaveLength(0);
+	});
+});
+
+describe('transaction isolation', () => {
+	test('an unrelated write is not swept into a rollback', async () => {
+		await freshDatabase();
+		await newPassage('seed');
+
+		const tx = ORM.getInstance().transaction(async tx => {
+			await newPassage('inTx', tx);
+			await new Promise(r => setTimeout(r, 20));
+			throw new Error('rollback');
+		});
+
+		// Issued while the transaction is open, from unrelated code.
+		const outside = newPassage('outsideTx');
+
+		await expect(tx).rejects.toThrow('rollback');
+		await outside;
+
+		const refs = (await Passage.query().get()).map(p => p.ref).sort();
+		expect(refs).toEqual(['outsideTx', 'seed']);
+	});
+
+	test('held writes still run after a rollback', async () => {
+		await freshDatabase();
+
+		const tx = ORM.getInstance().transaction(async () => {
+			await new Promise(r => setTimeout(r, 20));
+			throw new Error('rollback');
+		});
+		const outside = newPassage('after');
+
+		await expect(tx).rejects.toThrow('rollback');
+		await outside;
+
+		expect(await Passage.query().get()).toHaveLength(1);
+	});
+
+	test('a write already in flight is not swallowed by a transaction', async () => {
+		await freshDatabase();
+
+		const earlier = newPassage('earlier');
+		const tx = ORM.getInstance().transaction(async tx => {
+			await newPassage('inTx', tx);
+			throw new Error('rollback');
+		});
+
+		await earlier;
+		await expect(tx).rejects.toThrow('rollback');
+
+		expect((await Passage.query().get()).map(p => p.ref)).toEqual([
+			'earlier',
+		]);
+	});
+
+	test('isolation holds with the write queue disabled', async () => {
+		await freshDatabase({ enableWriteQueue: false });
+
+		const tx = ORM.getInstance().transaction(async tx => {
+			await newPassage('inTx', tx);
+			await new Promise(r => setTimeout(r, 20));
+			throw new Error('rollback');
+		});
+		const outside = newPassage('outsideTx');
+
+		await expect(tx).rejects.toThrow('rollback');
+		await outside;
+
+		expect((await Passage.query().get()).map(p => p.ref)).toEqual([
+			'outsideTx',
+		]);
+	});
+
+	test('forgetting the handle reports it instead of stalling', async () => {
+		await freshDatabase();
+
+		await expect(
+			ORM.getInstance().transaction(async () => {
+				await newPassage('a');
+			}),
+		).rejects.toThrow(/without its tx handle/);
+	});
+
+	test('a handle from a finished transaction is refused', async () => {
+		await freshDatabase();
+
+		let stale!: Transaction;
+		await ORM.getInstance().transaction(async tx => {
+			stale = tx;
+		});
+
+		await expect(newPassage('a', stale)).rejects.toThrow(/already ended/);
 	});
 });

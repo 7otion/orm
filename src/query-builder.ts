@@ -11,6 +11,7 @@ import type {
 } from './types';
 import type { Model, ModelStatic } from './model';
 import { ORM } from './orm';
+import type { Transaction } from './transaction';
 import {
 	assertIdentifier,
 	findRelationship,
@@ -535,7 +536,10 @@ export class QueryBuilder<
 	}
 
 	/** Deletes matching rows in one queued statement, returning the count. */
-	async delete(this: QueryBuilder<T, TRelations, false>): Promise<number> {
+	async delete(
+		this: QueryBuilder<T, TRelations, false>,
+		tx?: Transaction,
+	): Promise<number> {
 		this.assertUngrouped('delete');
 
 		if (this.relationshipConstraint) {
@@ -543,25 +547,30 @@ export class QueryBuilder<
 		}
 
 		const orm = ORM.getInstance();
-		return orm.queueWrite(async () => {
-			const dialect = orm.getDialect();
-			const adapter = orm.getAdapter();
+		return orm.queueWrite(
+			async () => {
+				const dialect = orm.getDialect();
+				const adapter = orm.getAdapter();
 
-			const compiled = dialect.compileDeleteQuery(this.query);
+				const compiled = dialect.compileDeleteQuery(this.query);
 
-			const affected = await adapter.execute(
-				compiled.sql,
-				compiled.bindings,
-			);
+				const affected = await adapter.execute(
+					compiled.sql,
+					compiled.bindings,
+				);
 
-			return affected;
-		});
+				return affected;
+			},
+			tx,
+			`${this.modelClass.name}.query().delete()`,
+		);
 	}
 
 	/** Updates matching rows in one queued statement, returning the count. */
 	async update(
 		this: QueryBuilder<T, TRelations, false>,
 		data: Patch<T>,
+		tx?: Transaction,
 	): Promise<number> {
 		this.assertUngrouped('update');
 
@@ -570,32 +579,36 @@ export class QueryBuilder<
 		}
 
 		const orm = ORM.getInstance();
-		return orm.queueWrite(async () => {
-			const dialect = orm.getDialect();
-			const adapter = orm.getAdapter();
+		return orm.queueWrite(
+			async () => {
+				const dialect = orm.getDialect();
+				const adapter = orm.getAdapter();
 
-			const timestamps = this.modelClass.timestamps;
-			const stamped = timestamps.strip(
-				omitUndefined(data as Record<string, QueryValue>),
-			);
-			if (timestamps.columns) {
-				stamped[timestamps.columns.updated_at] = timestamps.now();
-			}
+				const timestamps = this.modelClass.timestamps;
+				const stamped = timestamps.strip(
+					omitUndefined(data as Record<string, QueryValue>),
+				);
+				if (timestamps.columns) {
+					stamped[timestamps.columns.updated_at] = timestamps.now();
+				}
 
-			if (Object.keys(stamped).length === 0) return 0;
+				if (Object.keys(stamped).length === 0) return 0;
 
-			const compiled = dialect.compileUpdateQuery(
-				this.query,
-				this.modelClass.casts.toDatabaseValues(stamped),
-			);
+				const compiled = dialect.compileUpdateQuery(
+					this.query,
+					this.modelClass.casts.toDatabaseValues(stamped),
+				);
 
-			const affected = await adapter.execute(
-				compiled.sql,
-				compiled.bindings,
-			);
+				const affected = await adapter.execute(
+					compiled.sql,
+					compiled.bindings,
+				);
 
-			return affected;
-		});
+				return affected;
+			},
+			tx,
+			`${this.modelClass.name}.query().update()`,
+		);
 	}
 
 	private hydrate(row: DatabaseRow): T {

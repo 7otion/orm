@@ -28,6 +28,7 @@ import type { AnyRelations } from './relation-paths';
 import type { Patch } from './columns';
 import { BUILTIN_CASTS, Caster, type ColumnCast, DateCast } from './casts';
 import { Timestamps } from './timestamps';
+import type { Transaction } from './transaction';
 
 export interface ModelConstructor<TModel extends Model<TModel>> {
 	new (): TModel;
@@ -401,11 +402,12 @@ export abstract class Model<T extends Model<T>> {
 	static async create<T extends Model<T>>(
 		this: ModelStatic<T>,
 		data: NoInfer<Patch<T>>,
+		tx?: Transaction,
 	): Promise<T> {
 		const model = new this();
 		model.fill(data);
 
-		await model.save();
+		await model.save(tx);
 		return model;
 	}
 
@@ -413,16 +415,18 @@ export abstract class Model<T extends Model<T>> {
 	static async createMany<T extends Model<T>>(
 		this: ModelStatic<T>,
 		rows: NoInfer<Patch<T>>[],
+		tx?: Transaction,
 	): Promise<number> {
-		return new BulkWriter(this).insert(rows);
+		return new BulkWriter(this).insert(rows, tx);
 	}
 
 	/** Saves every model's pending changes in one statement. */
 	static async updateMany<T extends Model<T>>(
 		this: ModelStatic<T>,
 		models: T[],
+		tx?: Transaction,
 	): Promise<T[]> {
-		return new BulkWriter(this).update(models);
+		return new BulkWriter(this).update(models, tx);
 	}
 
 	protected static hasOne<C extends ModelStatic<any>>(
