@@ -102,11 +102,40 @@ await User.query()
 await User.query().where('email', 'a@b.c').first(); // User | null
 await User.query().where('email', 'a@b.c').exists(); // boolean
 await User.query().paginate(2, 20); // { data, total }
+
+await User.query().where('status', 'active').count(); // number
+await User.query().pluck('email'); // string[]
+await User.query().value('email'); // string | null
+
+await User.query().sum('age'); // number — 0 when nothing matches
+await User.query().avg('age'); // number | null
+await User.query().min('created_at'); // Date | null
+await User.query().max('age'); // number | null
 ```
+
+`count()` asks how many rows match without building any. `pluck()` returns one
+column across every matching row, cast the way `get()` casts it — a `date`
+column comes back as `Date`. `value()` is the first of those, or `null`, and
+`min()` / `max()` cast the same way.
+
+Limit, offset and order do not apply to an aggregate: `.limit(5).sum('age')`
+sums every matching row, not five.
 
 `exists()` compiles to `SELECT 1 … LIMIT 1` and never builds a model, so it is
 the cheap way to ask a yes/no question that `first() !== null` answers by
 hydrating a row.
+
+A builder is mutable: each chained method adds to the builder it is called on,
+and terminal methods leave it unchanged, so it can be run more than once. To
+branch one base query into several, copy it with `clone()`:
+
+```ts
+const active = User.query().where('status', 'active');
+
+await active.clone().where('role', 'admin').get();
+await active.clone().orderBy('name').get();
+await active.get(); // still just status = active
+```
 
 `where()` takes either `(column, value)` or `(column, operator, value)`.
 Operators: `=`, `!=`, `>`, `>=`, `<`, `<=`, `LIKE`, `IN`, `NOT IN`, `IS`,
@@ -169,6 +198,9 @@ await Fragment.query().groupBy('schema_ref').get();
 `having()` takes a model column like `where()` does; `havingRaw()` takes the
 aggregate expressions `HAVING` is usually written against. Neither requires
 `groupBy()` — `HAVING` over an ungrouped query treats the table as one group.
+
+The `having` family mirrors `where`: `orHaving`, `havingNot`, `orHavingNot`,
+`orHavingRaw`, and a callback for one parenthesised group.
 
 `aggregate()` returns whatever the adapter returned, typed by its parameter. It
 never hydrates, so nothing arrives wearing a model's type without a model's
@@ -515,6 +547,53 @@ class Hotspot extends Model<Hotspot> {
 }
 ```
 
+### Syncing a relation's set
+
+A `hasMany` or `morphMany` relation can be made to hold exactly a given set:
+
+```ts
+await character.relation('tags').sync(['hero', 'rogue']);
+// { attached: 1, detached: 1, updated: 0, unchanged: 1 }
+```
+
+It works by difference: rows missing from the database are created, rows absent
+from your set are deleted, a row whose other columns moved is updated, and
+anything already right is left untouched. It runs in one transaction, so a
+failure part way leaves the set as it was — unlike the usual hand-written
+version, which deletes everything first and loses the lot if a later insert
+fails.
+
+Members are bare values when one column identifies them, or whole rows when more
+than one does:
+
+```ts
+await character.relation('assets').sync(
+	[
+		{ asset_ref: 'a1', kind: 'portrait' },
+		{ asset_ref: 'a2', kind: 'sprite' },
+	],
+	{ matchOn: ['asset_ref', 'kind'] },
+);
+```
+
+Identity defaults to the related model's key columns less the foreign key — for
+a tag table keyed on `['character_ref', 'tag']`, that is `tag`. A generated `id`
+cannot identify an incoming row, so pass `matchOn` there.
+
+A row given without a column keeps whatever that column already held, so a
+partial row updates rather than blanks.
+
+Relation names are checked against the model's own relations, the same way
+`with()` is:
+
+```ts
+character.relation('tagz'); // compile error
+character.relation('name'); // compile error — a column, not a relation
+```
+
+To-one relations (`hasOne`, `belongsTo`) have no set to sync, so they are a
+compile error too — assign the property and `save()`.
+
 ### Refreshing
 
 ```ts
@@ -527,17 +606,52 @@ changes.
 
 ## Transactions
 
-`transaction` is an instance method:
+`transaction` is an instance method. It hands the callback a handle, and every
+write inside must carry it:
 
 ```ts
-await ORM.getInstance().transaction(async () => {
-	const user = await User.create({ name: 'John' });
-	await Post.create({ user_id: user.id, title: 'Hello' });
+await ORM.getInstance().transaction(async tx => {
+	const user = await User.create({ name: 'John' }, tx);
+	await Post.create({ user_id: user.id, title: 'Hello' }, tx);
+	await Comment.query().where('user_id', user.id).delete(tx);
 });
 ```
 
 Commits on success, rolls back on throw, and returns the callback's value.
-Nested calls join the outermost transaction — only it commits.
+Nested calls join the outermost transaction — only it commits — and receive the
+same handle.
+
+Reads take no handle. They are never queued, and inside the transaction they
+already see its own uncommitted rows.
+
+### Why the handle
+
+`BEGIN` and `COMMIT` belong to the connection, not to your code, so _any_
+statement reaching the database while a transaction is open becomes part of it.
+Without the handle an unrelated write — an autosave, a timer — is committed or
+rolled back along with work it has nothing to do with, and its caller is told it
+succeeded either way.
+
+The handle is what separates the two. A write carrying it runs inside the
+transaction; a write without one is held and runs once the transaction ends:
+
+```ts
+await ORM.getInstance().transaction(async tx => {
+	await user.save(tx); // inside the transaction
+	void other.save(); // held — runs after COMMIT, and survives a ROLLBACK
+});
+```
+
+Forgetting it is reported rather than left to be discovered:
+
+```
+[orm] Passage.save() was issued inside transaction() without its tx handle…
+```
+
+`enableWriteQueue` does not apply to transactions; they are always serialised.
+
+The handle is only valid inside the callback that received it — using a finished
+one throws.
 
 ## Adapters
 
@@ -582,15 +696,16 @@ key adopts.
 Implement `SqlDialect` to target another SQL flavour. `SQLiteDialect` ships
 with the package.
 
-| method               | required for                  |
-| -------------------- | ----------------------------- |
-| `compileSelect`      | reads                         |
-| `compileInsert`      | `save()` on a new model       |
-| `compileUpdate`      | `save()` on an existing model |
-| `compileDelete`      | `model.delete()`              |
-| `compileCount`       | `paginate()`                  |
-| `compileDeleteQuery` | `QueryBuilder.delete()`       |
-| `compileUpdateQuery` | `QueryBuilder.update()`       |
+| method               | required for                                  |
+| -------------------- | --------------------------------------------- |
+| `compileSelect`      | reads                                         |
+| `compileInsert`      | `save()` on a new model                       |
+| `compileUpdate`      | `save()` on an existing model                 |
+| `compileDelete`      | `model.delete()`                              |
+| `compileCount`       | `paginate()`, `count()`                       |
+| `compileAggregate`   | `sum()`, `avg()`, `min()`, `max()` — optional |
+| `compileDeleteQuery` | `QueryBuilder.delete()`                       |
+| `compileUpdateQuery` | `QueryBuilder.update()`                       |
 
 Dialects generate SQL and never execute it. Bind every value; only identifiers
 belong in the statement text.
