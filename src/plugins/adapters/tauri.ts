@@ -1,5 +1,6 @@
 import type { DatabaseAdapter } from '../../adapter';
 import type { DatabaseRow, QueryValue } from '../../types';
+import { StatementLogger } from './statement-logger';
 
 type TauriDatabase = {
 	execute(sql: string, bindValues?: unknown[]): Promise<any>;
@@ -24,13 +25,13 @@ export interface TauriAdapterConfig {
  */
 export class TauriAdapter implements DatabaseAdapter {
 	private db: TauriDatabase | null = null;
-	private debug: boolean = false;
+	private logger: StatementLogger;
 	private config: TauriAdapterConfig;
 	private initPromise: Promise<void> | null = null;
 
 	constructor(config: TauriAdapterConfig) {
 		this.config = config;
-		this.debug = config.debug || false;
+		this.logger = new StatementLogger(config.debug ?? false);
 	}
 
 	async initialize(): Promise<void> {
@@ -74,41 +75,9 @@ export class TauriAdapter implements DatabaseAdapter {
 		return this.db;
 	}
 
-	private logQuery(type: string, sql: string, params?: QueryValue[]): void {
-		if (!this.debug) {
-			return;
-		}
-
-		const formattedSql = this.formatSqlWithParams(sql, params);
-		console.log(`🔹 [${type}]:`, formattedSql);
-	}
-
-	private formatSqlWithParams(sql: string, params?: QueryValue[]): string {
-		if (!params || params.length === 0) {
-			return sql;
-		}
-
-		let formatted = sql;
-		for (const param of params) {
-			let value: string;
-
-			if (param === null || param === undefined) {
-				value = 'NULL';
-			} else if (typeof param === 'string') {
-				value = `'${param.replace(/'/g, "''")}'`;
-			} else {
-				value = String(param);
-			}
-
-			formatted = formatted.replace('?', value);
-		}
-
-		return formatted;
-	}
-
 	async query(sql: string, params?: QueryValue[]): Promise<DatabaseRow[]> {
 		const db = this.ensureInitialized();
-		this.logQuery('SELECT', sql, params);
+		this.logger.log('SELECT', sql, params);
 
 		const result = await db.select<DatabaseRow>(sql, params);
 		return result || [];
@@ -116,7 +85,7 @@ export class TauriAdapter implements DatabaseAdapter {
 
 	async execute(sql: string, params?: QueryValue[]): Promise<number> {
 		const db = this.ensureInitialized();
-		this.logQuery('EXECUTE', sql, params);
+		this.logger.log('EXECUTE', sql, params);
 
 		const result = await db.execute(sql, params);
 		return result.rowsAffected || 0;
@@ -124,7 +93,7 @@ export class TauriAdapter implements DatabaseAdapter {
 
 	async insert(sql: string, params?: QueryValue[]): Promise<number> {
 		const db = this.ensureInitialized();
-		this.logQuery('INSERT', sql, params);
+		this.logger.log('INSERT', sql, params);
 
 		const result = await db.execute(sql, params);
 		return result.lastInsertId || 0;
