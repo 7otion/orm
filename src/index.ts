@@ -57,3 +57,7 @@ export {
 	TauriAdapter,
 	type TauriAdapterConfig,
 } from './plugins/adapters/tauri';
+export {
+	Tauri7otionSqliteAdapter,
+	type Tauri7otionSqliteAdapterConfig,
+} from './plugins/adapters/tauri-7otion-sqlite-adapter';
