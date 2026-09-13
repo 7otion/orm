@@ -54,10 +54,10 @@ export class Tauri7otionSqliteAdapter implements TransactionalAdapter {
 
 		try {
 			// @ts-ignore
-			plugin = await import('tauri-plugin-7otion-sqlite-api');
+			plugin = await import('@7otion/tauri-plugin-sqlite-api');
 		} catch (_error) {
 			throw new Error(
-				'tauri-plugin-7otion-sqlite-api is required for Tauri7otionSqliteAdapter. Install it with: ' +
+				'@7otion/tauri-plugin-sqlite-api is required for Tauri7otionSqliteAdapter. Install it with: ' +
 					'bun add github:7otion/tauri-plugin-7otion-sqlite',
 			);
 		}

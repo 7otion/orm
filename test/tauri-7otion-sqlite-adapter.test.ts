@@ -1,5 +1,5 @@
 /**
- * Tauri7otionSqliteAdapter over a stand-in for tauri-plugin-7otion-sqlite-api: one
+ * Tauri7otionSqliteAdapter over a stand-in for @7otion/tauri-plugin-sqlite-api: one
  * bun:sqlite connection behind the same `Database` surface the plugin's JS exposes.
  */
 
@@ -48,7 +48,7 @@ class PluginDatabase {
 	}
 }
 
-mock.module('tauri-plugin-7otion-sqlite-api', () => ({
+mock.module('@7otion/tauri-plugin-sqlite-api', () => ({
 	Database: PluginDatabase,
 }));
 

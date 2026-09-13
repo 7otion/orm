@@ -37,13 +37,13 @@
 	},
 	"peerDependencies": {
 		"@tauri-apps/plugin-sql": "^2.0.0",
-		"tauri-plugin-7otion-sqlite-api": "*"
+		"@7otion/tauri-plugin-sqlite-api": "*"
 	},
 	"peerDependenciesMeta": {
 		"@tauri-apps/plugin-sql": {
 			"optional": true
 		},
-		"tauri-plugin-7otion-sqlite-api": {
+		"@7otion/tauri-plugin-sqlite-api": {
 			"optional": true
 		}
 	}
