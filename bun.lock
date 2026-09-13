@@ -10,9 +10,11 @@
         "typescript": "^6.0.2",
       },
       "peerDependencies": {
+        "@7otion/tauri-plugin-sqlite-api": "*",
         "@tauri-apps/plugin-sql": "^2.0.0",
       },
       "optionalPeers": [
+        "@7otion/tauri-plugin-sqlite-api",
         "@tauri-apps/plugin-sql",
       ],
     },
