@@ -1,8 +1,8 @@
 {
 	"name": "@7otion/orm",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"author": "Burak Kartal",
-	"description": "A simple database-agnostic ORM for TypeScript that supports tauri's sql plugin.",
+	"description": "A simple database-agnostic ORM for TypeScript, with adapters for Tauri.",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/7otion/orm"
@@ -36,10 +36,14 @@
 		"typescript": "^6.0.2"
 	},
 	"peerDependencies": {
-		"@tauri-apps/plugin-sql": "^2.0.0"
+		"@tauri-apps/plugin-sql": "^2.0.0",
+		"tauri-plugin-7otion-sqlite-api": "*"
 	},
 	"peerDependenciesMeta": {
 		"@tauri-apps/plugin-sql": {
+			"optional": true
+		},
+		"tauri-plugin-7otion-sqlite-api": {
 			"optional": true
 		}
 	}

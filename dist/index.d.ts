@@ -21,4 +21,5 @@ export type { DatabaseRow, QueryValue, WhereValue, WhereOperator, OrderDirection
 export { BooleanCast, JsonCast, DateCast, EmptyToNullCast, type CastType, type ColumnCast, } from './casts';
 export { SQLiteDialect, type SQLiteDialectOptions, } from './plugins/dialects/sqlite';
 export { TauriAdapter, type TauriAdapterConfig, } from './plugins/adapters/tauri';
+export { Tauri7otionSqliteAdapter, type Tauri7otionSqliteAdapterConfig, } from './plugins/adapters/tauri-7otion-sqlite-adapter';
 //# sourceMappingURL=index.d.ts.map

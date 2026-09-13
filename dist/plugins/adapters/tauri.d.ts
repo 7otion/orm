@@ -10,15 +10,13 @@ export interface TauriAdapterConfig {
  */
 export declare class TauriAdapter implements DatabaseAdapter {
     private db;
-    private debug;
+    private logger;
     private config;
     private initPromise;
     constructor(config: TauriAdapterConfig);
     initialize(): Promise<void>;
     private performInitialization;
     private ensureInitialized;
-    private logQuery;
-    private formatSqlWithParams;
     query(sql: string, params?: QueryValue[]): Promise<DatabaseRow[]>;
     execute(sql: string, params?: QueryValue[]): Promise<number>;
     insert(sql: string, params?: QueryValue[]): Promise<number>;

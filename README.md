@@ -54,6 +54,17 @@ Anything that needs a transaction is refused on it — see
 `journal_mode = WAL`, which SQLite stores in the database file; a per-connection
 setting would reach one pooled connection.
 
+For transactions in Tauri, use `Tauri7otionSqliteAdapter` with
+[tauri-plugin-7otion-sqlite](https://github.com/7otion/tauri-plugin-7otion-sqlite),
+which keeps one connection per database file:
+
+```ts
+const adapter = new Tauri7otionSqliteAdapter({ database: 'app.sqlite' });
+await adapter.initialize();
+```
+
+It also takes `key` (SQLCipher) and `pragmas`, passed to the plugin's `load`.
+
 ## Defining models
 
 ```ts
