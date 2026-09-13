@@ -37,7 +37,7 @@
 	},
 	"peerDependencies": {
 		"@tauri-apps/plugin-sql": "^2.0.0",
-		"@7otion/tauri-plugin-sqlite-api": "*"
+		"@7otion/tauri-plugin-sqlite-api": "https://github.com/7otion/tauri-plugin-7otion-sqlite.git"
 	},
 	"peerDependenciesMeta": {
 		"@tauri-apps/plugin-sql": {
