@@ -8,7 +8,31 @@ import type {
 	WhereCondition,
 } from '../../types';
 
+export interface SQLiteDialectOptions {
+	/** The SQLITE_MAX_VARIABLE_NUMBER of the SQLite build in use. */
+	maxBindParameters?: number;
+}
+
 export class SQLiteDialect implements SqlDialect {
+	/** SQLite's default since 3.32.0; older builds used 999. */
+	static readonly DEFAULT_MAX_BIND_PARAMETERS = 32766;
+
+	readonly maxBindParameters: number;
+
+	constructor(options: SQLiteDialectOptions = {}) {
+		const limit =
+			options.maxBindParameters ??
+			SQLiteDialect.DEFAULT_MAX_BIND_PARAMETERS;
+
+		if (!Number.isInteger(limit) || limit < 1) {
+			throw new Error(
+				`[orm] maxBindParameters must be a positive integer, got ${limit}.`,
+			);
+		}
+
+		this.maxBindParameters = limit;
+	}
+
 	/**
 	 * SQLite has no boolean type, and a driver handed a raw `true` will not
 	 * necessarily store 0/1 — tauri-plugin-sql, for one, binds it as the JSON
@@ -152,9 +176,6 @@ export class SQLiteDialect implements SqlDialect {
 
 		return this.compiled(sql, values);
 	}
-
-	/** The historical SQLITE_MAX_VARIABLE_NUMBER, safe on every build. */
-	readonly maxBindParameters = 999;
 
 	compileInsertMany(
 		table: string,

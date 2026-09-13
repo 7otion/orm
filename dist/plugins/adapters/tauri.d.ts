@@ -3,11 +3,13 @@ import type { DatabaseRow, QueryValue } from '../../types';
 export interface TauriAdapterConfig {
     database: string;
     debug?: boolean;
-    pragmas?: string[];
 }
+/**
+ * No transactions: tauri-plugin-sql pools connections, so BEGIN and COMMIT can
+ * reach different ones (tauri-apps/plugins-workspace#886).
+ */
 export declare class TauriAdapter implements DatabaseAdapter {
     private db;
-    private inTransactionFlag;
     private debug;
     private config;
     private initPromise;
@@ -20,10 +22,6 @@ export declare class TauriAdapter implements DatabaseAdapter {
     query(sql: string, params?: QueryValue[]): Promise<DatabaseRow[]>;
     execute(sql: string, params?: QueryValue[]): Promise<number>;
     insert(sql: string, params?: QueryValue[]): Promise<number>;
-    beginTransaction(): Promise<void>;
-    commit(): Promise<void>;
-    rollback(): Promise<void>;
-    inTransaction(): boolean;
     close(): Promise<void>;
 }
 //# sourceMappingURL=tauri.d.ts.map

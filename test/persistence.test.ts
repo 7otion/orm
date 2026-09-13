@@ -14,7 +14,14 @@ import {
 	User,
 	Variable,
 } from './helpers/models';
+import { SQLiteDialect } from '../src/plugins/dialects/sqlite';
+
 import { freshDatabase } from './helpers/setup';
+
+/** The pre-3.32 SQLite limit, so a few hundred rows span several statements. */
+const smallLimit = () => ({
+	dialect: new SQLiteDialect({ maxBindParameters: 999 }),
+});
 
 async function seedPassage(ref = 'intro'): Promise<Passage> {
 	return Passage.create({
@@ -553,7 +560,7 @@ describe('createMany', () => {
 	});
 
 	test('chunks past the dialect parameter limit', async () => {
-		const { adapter } = await freshDatabase();
+		const { adapter } = await freshDatabase(smallLimit());
 
 		// 999 / 3 columns = 333 rows per statement.
 		const rows = Array.from({ length: 600 }, (_, i) => ({
@@ -569,6 +576,32 @@ describe('createMany', () => {
 		expect(inserts).toHaveLength(2);
 		expect(inserts[0]!.params).toHaveLength(999);
 		expect(await CharacterTag.query().get()).toHaveLength(600);
+	});
+
+	test('the default limit is SQLite 3.32 and later', async () => {
+		const { adapter } = await freshDatabase();
+
+		const rows = Array.from({ length: 10_000 }, (_, i) => ({
+			character_ref: 'alice',
+			tag: `tag-${i}`,
+			sort: i,
+		}));
+
+		adapter.clearLog();
+		expect(await CharacterTag.createMany(rows)).toBe(10_000);
+
+		expect(
+			adapter.log.filter(e => e.sql.startsWith('INSERT')),
+		).toHaveLength(1);
+	});
+
+	test('a limit that is not a positive integer is refused', () => {
+		expect(() => new SQLiteDialect({ maxBindParameters: 0 })).toThrow(
+			/positive integer/,
+		);
+		expect(() => new SQLiteDialect({ maxBindParameters: 1.5 })).toThrow(
+			/positive integer/,
+		);
 	});
 });
 
@@ -716,7 +749,7 @@ describe('updateMany', () => {
 	});
 
 	test('chunks past the dialect parameter limit', async () => {
-		const { adapter } = await freshDatabase();
+		const { adapter } = await freshDatabase(smallLimit());
 
 		await CharacterTag.createMany(
 			Array.from({ length: 400 }, (_, i) => ({
@@ -782,7 +815,7 @@ describe('updateMany', () => {
 	});
 
 	test('a batch too large for one statement still lands or fails whole', async () => {
-		const { adapter } = await freshDatabase();
+		const { adapter } = await freshDatabase(smallLimit());
 
 		await Fragment.createMany(
 			Array.from({ length: 400 }, (_, index) => ({

@@ -1,5 +1,11 @@
 import type { QueryValue } from './types';
 /**
+ * Shared helpers. Separate module so the mixins can use them without importing
+ * `model.ts`, which imports the mixins itself.
+ */
+/** Joins several values into one key; no column value can contain it. */
+export declare const KEY_SEPARATOR = "\0";
+/**
  * Identifiers are interpolated into SQL, not bound, so anything that is not a
  * plain name is rejected rather than escaped — an escaped expression would
  * only fail later as an unknown column. Expressions belong in the `*Raw`

@@ -14,7 +14,7 @@ export type { RelationPath } from './relation-paths';
 export type { LoadableRelation } from './relationships/relationship';
 export { ORM, type ORMConfig } from './orm';
 export { Transaction } from './transaction';
-export type { DatabaseAdapter } from './adapter';
+export type { DatabaseAdapter, TransactionalAdapter } from './adapter';
 export type { SqlDialect } from './dialect';
 export { QueryBuilder } from './query-builder';
 export {
@@ -49,7 +49,10 @@ export {
 	type ColumnCast,
 } from './casts';
 
-export { SQLiteDialect } from './plugins/dialects/sqlite';
+export {
+	SQLiteDialect,
+	type SQLiteDialectOptions,
+} from './plugins/dialects/sqlite';
 export {
 	TauriAdapter,
 	type TauriAdapterConfig,

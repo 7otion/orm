@@ -1,6 +1,14 @@
 import type { SqlDialect } from '../../dialect';
 import type { AggregateFunction, CompiledQuery, QueryStructure, QueryValue } from '../../types';
+export interface SQLiteDialectOptions {
+    /** The SQLITE_MAX_VARIABLE_NUMBER of the SQLite build in use. */
+    maxBindParameters?: number;
+}
 export declare class SQLiteDialect implements SqlDialect {
+    /** SQLite's default since 3.32.0; older builds used 999. */
+    static readonly DEFAULT_MAX_BIND_PARAMETERS = 32766;
+    readonly maxBindParameters: number;
+    constructor(options?: SQLiteDialectOptions);
     /**
      * SQLite has no boolean type, and a driver handed a raw `true` will not
      * necessarily store 0/1 — tauri-plugin-sql, for one, binds it as the JSON
@@ -22,8 +30,6 @@ export declare class SQLiteDialect implements SqlDialect {
     private rowidFilter;
     private needsRowidFilter;
     compileInsert(table: string, data: Record<string, QueryValue>): CompiledQuery;
-    /** The historical SQLITE_MAX_VARIABLE_NUMBER, safe on every build. */
-    readonly maxBindParameters = 999;
     compileInsertMany(table: string, rows: Record<string, QueryValue>[]): CompiledQuery;
     compileUpdateMany(table: string, rows: Record<string, QueryValue>[], keyColumns: string[], set: Record<string, QueryValue>): CompiledQuery;
     compileUpdate(table: string, data: Record<string, QueryValue>, primaryKey: string | string[], id: QueryValue | QueryValue[]): CompiledQuery;

@@ -16,10 +16,12 @@ export interface ORMConfig {
 export declare class ORM {
     private static instance;
     private adapter;
+    /** The same adapter when it implements `TransactionalAdapter`, otherwise null. */
+    private transactions;
     private dialect;
     private enableWriteQueue;
     private watchdogMs;
-    /** The book: one serial chain. A transaction is itself an entry in it. */
+    /** The book: one serial chain. A unit of writes is itself an entry in it. */
     private book;
     private active;
     private constructor();
@@ -31,23 +33,39 @@ export declare class ORM {
     getDialect(): SqlDialect;
     /**
      * Runs the callback in a transaction, committing on success and rolling back
-     * on throw. Writes inside it must carry the `Transaction` it is passed.
-     * Nesting joins the outermost, which is the only one that commits.
+     * on throw. Given an open transaction's handle, it runs inside that one instead.
      */
-    transaction<T>(callback: (tx: Transaction) => Promise<T>): Promise<T>;
+    transaction<T>(callback: (tx: Transaction) => Promise<T>, tx?: Transaction, label?: string): Promise<T>;
     /**
-     * BEGIN/COMMIT around an operation, joining any transaction already open.
-     * Takes no place in the book, so a caller already holding one may use it.
+     * Runs work as one queued unit that holds other writes back until it ends.
+     * Given a unit's handle, it runs inside that unit instead.
      */
-    atomic<T>(operation: () => Promise<T>): Promise<T>;
+    queueUnit<T>(work: (unit: Transaction) => Promise<T>, tx?: Transaction, label?: string): Promise<T>;
+    /**
+     * Issues BEGIN for a unit whose work spans several statements. Must be called
+     * before the unit's first write; refuses on an adapter without transactions.
+     */
+    ensureAtomic(unit: Transaction, statements: number, label: string): Promise<void>;
     /**
      * Serialises a write behind any already in flight. A write carrying the open
-     * transaction's handle runs immediately: it is that transaction, and queuing
-     * it would make the transaction wait on itself. Reads are never queued.
+     * unit's handle runs immediately: it is that unit, and queuing it would make
+     * the unit wait on itself. Reads are never queued.
      */
     queueWrite<T>(operation: () => Promise<T>, tx?: Transaction, label?: string): Promise<T>;
-    /** Appends to the book, warning if a transaction holds it up for too long. */
+    /** Must be called from the book: the unit is its own entry. */
+    private runUnit;
+    /** A write inside a transaction failed; SQLite may have rolled the whole transaction back. */
+    private noticeDatabaseRollback;
+    /** A failed rollback is reported rather than thrown, so the error that caused it survives. */
+    private rollbackAfterFailure;
+    private missingHandle;
+    private rolledBackByDatabase;
+    /** `statements` is omitted when the work cannot be counted, as with `transaction()`. */
+    private unsupported;
+    /** Appends to the book, warning if a unit holds it up for too long. */
     private enqueue;
     private warnIfHeld;
+    /** An adapter implementing only some of the transaction methods is refused outright. */
+    private static transactionsOf;
 }
 //# sourceMappingURL=orm.d.ts.map

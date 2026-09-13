@@ -5,10 +5,24 @@
 import { describe, expect, spyOn, test } from 'bun:test';
 
 import { ORM } from '../src/orm';
+import { SQLiteDialect } from '../src/plugins/dialects/sqlite';
 import type { Transaction } from '../src/transaction';
 
-import { Passage } from './helpers/models';
-import { freshDatabase } from './helpers/setup';
+import {
+	PlainBunSqliteAdapter,
+	type BunSqliteAdapter,
+} from './helpers/adapter';
+import { CharacterTag, Passage } from './helpers/models';
+import { freshDatabase, freshPlainDatabase } from './helpers/setup';
+
+/** The pre-3.32 SQLite limit, so a few hundred rows span several statements. */
+const smallLimit = () => ({
+	dialect: new SQLiteDialect({ maxBindParameters: 999 }),
+});
+
+function transactionStatements(adapter: BunSqliteAdapter): string[] {
+	return adapter.log.filter(e => e.kind === 'transaction').map(e => e.sql);
+}
 
 function newPassage(ref: string, tx?: Transaction): Promise<Passage> {
 	return Passage.create(
@@ -87,8 +101,7 @@ describe('transactions', () => {
 			}, tx);
 		});
 
-		// Exactly one BEGIN/COMMIT pair, not two.
-		expect(adapter.sqlLog().filter(s => s === 'BEGIN')).toHaveLength(0);
+		expect(transactionStatements(adapter)).toEqual(['BEGIN', 'COMMIT']);
 		expect(await Passage.query().get()).toHaveLength(2);
 	});
 
@@ -142,15 +155,14 @@ describe('transactions', () => {
 		]);
 	});
 
-	test('inTransaction reports the current state', async () => {
-		await freshDatabase();
-		const orm = ORM.getInstance();
+	test('the adapter reports the database state around a transaction', async () => {
+		const { adapter } = await freshDatabase();
 
-		expect(orm.getAdapter().inTransaction()).toBe(false);
-		await orm.transaction(async () => {
-			expect(orm.getAdapter().inTransaction()).toBe(true);
+		expect(await adapter.inTransaction()).toBe(false);
+		await ORM.getInstance().transaction(async () => {
+			expect(await adapter.inTransaction()).toBe(true);
 		});
-		expect(orm.getAdapter().inTransaction()).toBe(false);
+		expect(await adapter.inTransaction()).toBe(false);
 	});
 });
 
@@ -314,7 +326,7 @@ describe('transaction isolation', () => {
 
 describe('bulk write isolation', () => {
 	test('an unrelated write is not swept into a failed bulk write', async () => {
-		await freshDatabase({ enableWriteQueue: false });
+		await freshDatabase({ ...smallLimit(), enableWriteQueue: false });
 
 		const bulk = Passage.createMany(rowsFailingInSecondStatement());
 		const outside = newPassage('outside');
@@ -328,7 +340,7 @@ describe('bulk write isolation', () => {
 	});
 
 	test('a bulk write does not join another one', async () => {
-		await freshDatabase({ enableWriteQueue: false });
+		await freshDatabase({ ...smallLimit(), enableWriteQueue: false });
 
 		const failing = Passage.createMany(rowsFailingInSecondStatement());
 		const other = Passage.createMany([
@@ -355,21 +367,23 @@ describe('a failed commit or rollback', () => {
 	test('the caller receives the original error when the rollback fails too', async () => {
 		const { adapter } = await freshDatabase();
 		const reported = spyOn(console, 'error').mockImplementation(() => {});
+		adapter.rollback = async () => {
+			throw new Error('rollback failed');
+		};
 
 		await expect(
 			ORM.getInstance().transaction(async tx => {
 				await newPassage('a', tx);
-				// SQLite ending the transaction on its own, as a disk-full error does.
-				adapter.db.exec('ROLLBACK');
 				throw new Error('boom');
 			}),
 		).rejects.toThrow('boom');
 
 		expect(reported).toHaveBeenCalled();
 		reported.mockRestore();
+		adapter.db.exec('ROLLBACK');
 	});
 
-	test('the next transaction still rolls back', async () => {
+	test('a transaction the database already ended is not rolled back again', async () => {
 		const { adapter } = await freshDatabase();
 		const reported = spyOn(console, 'error').mockImplementation(() => {});
 
@@ -377,11 +391,26 @@ describe('a failed commit or rollback', () => {
 			ORM.getInstance().transaction(async tx => {
 				await newPassage('a', tx);
 				adapter.db.exec('ROLLBACK');
+				throw new Error('boom');
+			}),
+		).rejects.toThrow('boom');
+
+		expect(reported).not.toHaveBeenCalled();
+		expect(transactionStatements(adapter)).toEqual(['BEGIN']);
+		reported.mockRestore();
+	});
+
+	test('the next transaction still rolls back', async () => {
+		const { adapter } = await freshDatabase();
+
+		await expect(
+			ORM.getInstance().transaction(async tx => {
+				await newPassage('a', tx);
+				adapter.db.exec('ROLLBACK');
 			}),
 		).rejects.toThrow(/cannot commit/);
-		reported.mockRestore();
 
-		expect(adapter.inTransaction()).toBe(false);
+		expect(await adapter.inTransaction()).toBe(false);
 
 		await expect(
 			ORM.getInstance().transaction(async tx => {
@@ -391,5 +420,153 @@ describe('a failed commit or rollback', () => {
 		).rejects.toThrow('boom');
 
 		expect(await Passage.query().count()).toBe(0);
+	});
+});
+
+describe('the database rolling a transaction back on its own', () => {
+	/** Fails the insert for `ref` the way a disk-full error does: SQLite ends the transaction. */
+	function failWithRollback(adapter: BunSqliteAdapter, ref: string): void {
+		const insert = adapter.insert.bind(adapter);
+		adapter.insert = async (sql, params) => {
+			if (params?.includes(ref)) {
+				adapter.db.exec('ROLLBACK');
+				throw new Error('disk full');
+			}
+			return insert(sql, params);
+		};
+	}
+
+	test('later writes with the handle are refused, and nothing commits', async () => {
+		const { adapter } = await freshDatabase();
+		failWithRollback(adapter, 'explode');
+
+		let refused: unknown;
+		await expect(
+			ORM.getInstance().transaction(async tx => {
+				await newPassage('a', tx);
+				await newPassage('explode', tx).catch(() => {});
+				refused = await newPassage('c', tx).catch(error => error);
+			}),
+		).rejects.toThrow(/rolled the whole transaction back/);
+
+		expect(String(refused)).toMatch(/rolled the whole transaction back/);
+		expect(await Passage.query().count()).toBe(0);
+	});
+
+	test('a caught constraint error leaves the transaction running', async () => {
+		await freshDatabase();
+
+		await ORM.getInstance().transaction(async tx => {
+			await newPassage('a', tx);
+			await newPassage('a', tx).catch(() => {});
+			await newPassage('b', tx);
+		});
+
+		expect(await Passage.query().count()).toBe(2);
+	});
+});
+
+describe('a transaction only when the work needs one', () => {
+	const tags = (count: number, sort = 0) =>
+		Array.from({ length: count }, (_, i) => ({
+			character_ref: 'alice',
+			tag: `tag-${i}`,
+			sort,
+		}));
+
+	test('a one-statement createMany issues no BEGIN', async () => {
+		const { adapter } = await freshDatabase();
+
+		await CharacterTag.createMany(tags(3));
+
+		expect(transactionStatements(adapter)).toEqual([]);
+		expect(await CharacterTag.query().count()).toBe(3);
+	});
+
+	test('a createMany of several statements runs in one transaction', async () => {
+		const { adapter } = await freshDatabase(smallLimit());
+
+		// 999 / 3 columns = 333 rows per statement.
+		await CharacterTag.createMany(tags(600));
+
+		expect(transactionStatements(adapter)).toEqual(['BEGIN', 'COMMIT']);
+	});
+
+	test('a one-statement updateMany issues no BEGIN', async () => {
+		const { adapter } = await freshDatabase();
+		await CharacterTag.createMany(tags(3));
+		const rows = await CharacterTag.query().get();
+		rows.forEach((row, i) => (row.sort = i + 1));
+
+		adapter.clearLog();
+		await CharacterTag.updateMany(rows);
+
+		expect(transactionStatements(adapter)).toEqual([]);
+	});
+});
+
+describe('adapters without transactions', () => {
+	test('transaction() is refused before anything runs', async () => {
+		const { adapter } = await freshPlainDatabase();
+		let ran = false;
+
+		await expect(
+			ORM.getInstance().transaction(async () => {
+				ran = true;
+			}),
+		).rejects.toThrow(/does not implement TransactionalAdapter/);
+
+		expect(ran).toBe(false);
+		expect(adapter.log).toEqual([]);
+	});
+
+	test('a one-statement bulk write runs', async () => {
+		await freshPlainDatabase();
+
+		await CharacterTag.createMany([
+			{ character_ref: 'alice', tag: 'hero' },
+			{ character_ref: 'alice', tag: 'mage' },
+		]);
+		const rows = await CharacterTag.query().get();
+		rows.forEach((row, i) => (row.sort = i + 1));
+		await CharacterTag.updateMany(rows);
+
+		expect(
+			(await CharacterTag.query().orderBy('sort').get()).map(r => r.sort),
+		).toEqual([1, 2]);
+	});
+
+	test('a bulk write needing several statements is refused before writing', async () => {
+		const { adapter } = await freshPlainDatabase(smallLimit());
+
+		const rows = Array.from({ length: 600 }, (_, i) => ({
+			character_ref: 'alice',
+			tag: `tag-${i}`,
+		}));
+
+		await expect(CharacterTag.createMany(rows)).rejects.toThrow(
+			/needs 2 statements to land together/,
+		);
+
+		expect(adapter.log.filter(e => e.kind !== 'query')).toEqual([]);
+		expect(await CharacterTag.query().count()).toBe(0);
+	});
+
+	test('an adapter with only some transaction methods is refused', async () => {
+		await freshPlainDatabase();
+		await newPassage('kept');
+		const partial = Object.assign(new PlainBunSqliteAdapter(), {
+			beginTransaction: async () => {},
+		});
+
+		await expect(
+			ORM.reInitialize({
+				adapter: partial,
+				dialect: new SQLiteDialect(),
+			}),
+		).rejects.toThrow(/implements part of TransactionalAdapter/);
+
+		// The refused config left the working ORM and its connection in place.
+		expect(await Passage.query().count()).toBe(1);
 	});
 });

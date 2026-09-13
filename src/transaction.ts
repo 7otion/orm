@@ -1,14 +1,19 @@
 /**
- * The handle `ORM.transaction()` hands its callback. Writes carrying it belong
- * to that transaction; writes without it are held until the transaction ends.
+ * The handle a queued unit of writes carries. `ORM.transaction()` hands one to its
+ * callback; bulk writes and `sync` open one of their own. Writes carrying it
+ * belong to the unit; writes without it are held until the unit ends.
  */
 
 /** Named so the marker survives minification; the build passes `--keep-names`. */
 export const TRANSACTION_BODY_MARKER = 'ormTransactionBody';
 
 export class Transaction {
-	/** Set once the transaction settles, so a stale token can be rejected. */
+	/** Set once the unit settles, so a stale token can be rejected. */
 	private settled = false;
+
+	private begun = false;
+
+	private rolledBackByDatabase = false;
 
 	/** @internal */
 	isOpen(): boolean {
@@ -18,6 +23,26 @@ export class Transaction {
 	/** @internal */
 	close(): void {
 		this.settled = true;
+	}
+
+	/** @internal Whether BEGIN has been issued for this unit. */
+	hasBegun(): boolean {
+		return this.begun;
+	}
+
+	/** @internal */
+	markBegun(): void {
+		this.begun = true;
+	}
+
+	/** @internal */
+	wasRolledBackByDatabase(): boolean {
+		return this.rolledBackByDatabase;
+	}
+
+	/** @internal */
+	markRolledBackByDatabase(): void {
+		this.rolledBackByDatabase = true;
 	}
 }
 

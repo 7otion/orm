@@ -28,7 +28,8 @@ export declare class RelationWriter<T extends Model<T>> {
     /**
      * Makes the far side hold exactly these rows: missing ones are created,
      * absent ones deleted, and matched ones updated where they differ. Rows that
-     * are already right are left alone. One transaction.
+     * are already right are left alone. One transaction when that takes several
+     * statements.
      */
     sync(members: RelationMember[], options?: RelationWriteOptions, tx?: Transaction): Promise<SyncResult>;
     private related;

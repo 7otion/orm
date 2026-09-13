@@ -1,5 +1,5 @@
 /**
- * Test adapter over `bun:sqlite`, deliberately matching TauriAdapter's
+ * Test adapters over `bun:sqlite`, deliberately matching TauriAdapter's
  * observable semantics: insert() returns lastInsertRowid, execute() returns
  * rows affected, and `undefined` bindings become NULL (Tauri serialises bind
  * values as JSON, so undefined arrives as null).
@@ -9,20 +9,19 @@
 
 import { Database } from 'bun:sqlite';
 
-import type { DatabaseAdapter } from '../../src/adapter';
+import type { DatabaseAdapter, TransactionalAdapter } from '../../src/adapter';
 import type { DatabaseRow, QueryValue } from '../../src/types';
 
 export interface RecordedStatement {
-	kind: 'query' | 'execute' | 'insert';
+	kind: 'query' | 'execute' | 'insert' | 'transaction';
 	sql: string;
 	params: unknown[];
 }
 
-export class BunSqliteAdapter implements DatabaseAdapter {
+/** No transaction methods, as an adapter over a connection pool would have. */
+export class PlainBunSqliteAdapter implements DatabaseAdapter {
 	readonly db: Database;
 	readonly log: RecordedStatement[] = [];
-
-	private inTx = false;
 
 	constructor(filename = ':memory:') {
 		this.db = new Database(filename);
@@ -63,32 +62,33 @@ export class BunSqliteAdapter implements DatabaseAdapter {
 		return Number(result.lastInsertRowid);
 	}
 
+	async close(): Promise<void> {
+		this.db.close();
+	}
+}
+
+export class BunSqliteAdapter
+	extends PlainBunSqliteAdapter
+	implements TransactionalAdapter
+{
 	async beginTransaction(): Promise<void> {
-		if (this.inTx) return;
-		this.db.exec('BEGIN');
-		this.inTx = true;
+		this.run('BEGIN');
 	}
 
 	async commit(): Promise<void> {
-		if (!this.inTx) throw new Error('No transaction in progress');
-		this.db.exec('COMMIT');
-		this.inTx = false;
+		this.run('COMMIT');
 	}
 
 	async rollback(): Promise<void> {
-		if (!this.inTx) throw new Error('No transaction in progress');
-		try {
-			this.db.exec('ROLLBACK');
-		} finally {
-			this.inTx = false;
-		}
+		this.run('ROLLBACK');
 	}
 
-	inTransaction(): boolean {
-		return this.inTx;
+	async inTransaction(): Promise<boolean> {
+		return this.db.inTransaction;
 	}
 
-	async close(): Promise<void> {
-		this.db.close();
+	private run(sql: string): void {
+		this.log.push({ kind: 'transaction', sql, params: [] });
+		this.db.exec(sql);
 	}
 }

@@ -8,11 +8,140 @@ import type { DatabaseRow } from './types';
 import type { Patch } from './columns';
 import type { Model, ModelStatic } from './model';
 
+type PendingUpdate<T> = { model: T; row: DatabaseRow };
+
+type UpdatePlan<T> = {
+	pending: PendingUpdate<T>[];
+	keyColumns: string[];
+	set: DatabaseRow;
+	now: Date | null;
+	chunks: PendingUpdate<T>[][];
+};
+
 export class BulkWriter<T extends Model<T>> {
 	constructor(private readonly modelClass: ModelStatic<T>) {}
 
 	async insert(rows: Patch<T>[], tx?: Transaction): Promise<number> {
-		if (rows.length === 0) return 0;
+		const chunks = this.insertChunks(rows);
+		if (chunks.length === 0) return 0;
+
+		const orm = ORM.getInstance();
+		const label = `${this.modelClass.name}.createMany()`;
+
+		return orm.queueUnit(
+			async unit => {
+				await orm.ensureAtomic(unit, chunks.length, label);
+
+				const dialect = orm.getDialect();
+				const adapter = orm.getAdapter();
+				const table = this.modelClass.getTableName();
+
+				let written = 0;
+
+				for (const chunk of chunks) {
+					const compiled = dialect.compileInsertMany(table, chunk);
+					written += await adapter.execute(
+						compiled.sql,
+						compiled.bindings,
+					);
+				}
+
+				return written;
+			},
+			tx,
+			label,
+		);
+	}
+
+	/** How many statements `insert` issues for these rows. */
+	insertStatementCount(rows: Patch<T>[]): number {
+		return this.insertChunks(rows).length;
+	}
+
+	async update(models: T[], tx?: Transaction): Promise<T[]> {
+		const plan = this.planUpdate(models);
+		if (!plan) return models;
+
+		const { pending, keyColumns, set, now, chunks } = plan;
+		const timestamps = this.modelClass.timestamps;
+		const caster = this.modelClass.casts;
+
+		const orm = ORM.getInstance();
+		const label = `${this.modelClass.name}.updateMany()`;
+
+		const written = await orm.queueUnit(
+			async unit => {
+				await orm.ensureAtomic(unit, chunks.length, label);
+
+				const dialect = orm.getDialect();
+				const adapter = orm.getAdapter();
+				const table = this.modelClass.getTableName();
+
+				let affected = 0;
+
+				for (const chunk of chunks) {
+					const compiled = dialect.compileUpdateMany(
+						table,
+						chunk.map(({ row }) => row),
+						keyColumns,
+						set,
+					);
+					affected += await adapter.execute(
+						compiled.sql,
+						compiled.bindings,
+					);
+				}
+
+				return affected;
+			},
+			tx,
+			label,
+		);
+
+		// The write has landed by here, so every row that still existed now
+		// holds its new values. Only the ones that vanished are unaccounted for.
+		const missing =
+			written < pending.length
+				? await this.findMissing(pending)
+				: new Set<T>();
+
+		for (const { model } of pending) {
+			if (missing.has(model)) {
+				model._exists = false;
+				continue;
+			}
+			if (now && timestamps.columns) {
+				model._attributes[timestamps.columns.updated_at] = now;
+			}
+			model._original = caster.snapshot(model._attributes);
+		}
+
+		if (missing.size > 0) {
+			const keys = [...missing]
+				.map(model =>
+					keyColumns
+						.map(column => String(this.keyOf(model, column)))
+						.join('/'),
+				)
+				.join(', ');
+
+			throw new Error(
+				`[orm] ${missing.size} of ${pending.length} ${this.modelClass.getTableName()} rows no longer exist, ` +
+					`so their changes were not written: ${keys}. The rest were.`,
+			);
+		}
+
+		return models;
+	}
+
+	/** How many statements `update` issues for these models' pending changes. */
+	updateStatementCount(models: T[]): number {
+		return this.planUpdate(models)?.chunks.length ?? 0;
+	}
+
+	/** Rows grouped by the columns they set, then split at the dialect's parameter limit. */
+	private insertChunks(rows: Patch<T>[]): DatabaseRow[][] {
+		if (rows.length === 0) return [];
 
 		const shapes = BulkWriter.byShape(rows.map(data => this.toRow(data)));
 
@@ -24,54 +153,33 @@ export class BulkWriter<T extends Model<T>> {
 			);
 		}
 
-		const orm = ORM.getInstance();
+		const limit = ORM.getInstance().getDialect().maxBindParameters;
+		const chunks: DatabaseRow[][] = [];
 
-		return orm.transaction(
-			async () => {
-				const dialect = orm.getDialect();
-				const adapter = orm.getAdapter();
-				const table = this.modelClass.getTableName();
+		for (const shape of shapes.values()) {
+			const columnCount = Object.keys(shape[0]!).length;
+			const perStatement = limit
+				? Math.max(1, Math.floor(limit / Math.max(columnCount, 1)))
+				: shape.length;
 
-				let written = 0;
+			for (let i = 0; i < shape.length; i += perStatement) {
+				chunks.push(shape.slice(i, i + perStatement));
+			}
+		}
 
-				for (const shape of shapes.values()) {
-					const columnCount = Object.keys(shape[0]!).length;
-					const limit = dialect.maxBindParameters;
-					const perStatement = limit
-						? Math.max(
-								1,
-								Math.floor(limit / Math.max(columnCount, 1)),
-							)
-						: shape.length;
-
-					for (let i = 0; i < shape.length; i += perStatement) {
-						const compiled = dialect.compileInsertMany(
-							table,
-							shape.slice(i, i + perStatement),
-						);
-						written += await adapter.execute(
-							compiled.sql,
-							compiled.bindings,
-						);
-					}
-				}
-
-				return written;
-			},
-			tx,
-			`${this.modelClass.name}.createMany()`,
-		);
+		return chunks;
 	}
 
-	async update(models: T[], tx?: Transaction): Promise<T[]> {
-		if (models.length === 0) return models;
+	/** `null` when no model has anything pending. */
+	private planUpdate(models: T[]): UpdatePlan<T> | null {
+		if (models.length === 0) return null;
 
 		const timestamps = this.modelClass.timestamps;
 		const caster = this.modelClass.casts;
 		const keyColumns = this.keyColumns();
 		const now = timestamps.columns ? timestamps.now() : null;
 
-		const pending: { model: T; row: DatabaseRow }[] = [];
+		const pending: PendingUpdate<T>[] = [];
 
 		for (const model of models) {
 			const dirty = model
@@ -101,7 +209,7 @@ export class BulkWriter<T extends Model<T>> {
 			pending.push({ model, row: caster.toDatabaseValues(row) });
 		}
 
-		if (pending.length === 0) return models;
+		if (pending.length === 0) return null;
 
 		const columns = new Set(pending.flatMap(({ row }) => Object.keys(row)));
 		for (const key of keyColumns) columns.delete(key);
@@ -113,84 +221,24 @@ export class BulkWriter<T extends Model<T>> {
 					})
 				: {};
 
-		const orm = ORM.getInstance();
-
-		const written = await orm.transaction(
-			async () => {
-				const dialect = orm.getDialect();
-				const adapter = orm.getAdapter();
-				const table = this.modelClass.getTableName();
-
-				const perRow =
-					columns.size * (keyColumns.length + 1) + keyColumns.length;
-				const limit = dialect.maxBindParameters;
-				const perStatement = limit
-					? Math.max(
-							1,
-							Math.floor(
-								(limit - Object.keys(set).length) /
-									Math.max(perRow, 1),
-							),
-						)
-					: pending.length;
-
-				let affected = 0;
-
-				for (let i = 0; i < pending.length; i += perStatement) {
-					const compiled = dialect.compileUpdateMany(
-						table,
-						pending
-							.slice(i, i + perStatement)
-							.map(({ row }) => row),
-						keyColumns,
-						set,
-					);
-					affected += await adapter.execute(
-						compiled.sql,
-						compiled.bindings,
-					);
-				}
-
-				return affected;
-			},
-			tx,
-			`${this.modelClass.name}.updateMany()`,
-		);
-
-		// The write has committed by here, so every row that still existed now
-		// holds its new values. Only the ones that vanished are unaccounted for.
-		const missing =
-			written < pending.length
-				? await this.findMissing(pending)
-				: new Set<T>();
-
-		for (const { model } of pending) {
-			if (missing.has(model)) {
-				model._exists = false;
-				continue;
-			}
-			if (now && timestamps.columns) {
-				model._attributes[timestamps.columns.updated_at] = now;
-			}
-			model._original = caster.snapshot(model._attributes);
-		}
-
-		if (missing.size > 0) {
-			const keys = [...missing]
-				.map(model =>
-					this.keyColumns()
-						.map(column => String(this.keyOf(model, column)))
-						.join('/'),
+		const perRow =
+			columns.size * (keyColumns.length + 1) + keyColumns.length;
+		const limit = ORM.getInstance().getDialect().maxBindParameters;
+		const perStatement = limit
+			? Math.max(
+					1,
+					Math.floor(
+						(limit - Object.keys(set).length) / Math.max(perRow, 1),
+					),
 				)
-				.join(', ');
+			: pending.length;
 
-			throw new Error(
-				`[orm] ${missing.size} of ${pending.length} ${this.modelClass.getTableName()} rows no longer exist, ` +
-					`so their changes were not written: ${keys}. The rest were.`,
-			);
+		const chunks: PendingUpdate<T>[][] = [];
+		for (let i = 0; i < pending.length; i += perStatement) {
+			chunks.push(pending.slice(i, i + perStatement));
 		}
 
-		return models;
+		return { pending, keyColumns, set, now, chunks };
 	}
 
 	/** The value the row is stored under, as `save()` locates it. */
@@ -201,9 +249,7 @@ export class BulkWriter<T extends Model<T>> {
 	}
 
 	/** Which models no longer have a row. One query, on the failure path only. */
-	private async findMissing(
-		pending: { model: T; row: DatabaseRow }[],
-	): Promise<Set<T>> {
+	private async findMissing(pending: PendingUpdate<T>[]): Promise<Set<T>> {
 		const keyColumns = this.keyColumns();
 		const query = new QueryBuilder<T>(
 			this.modelClass,

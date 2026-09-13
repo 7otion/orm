@@ -16,12 +16,14 @@ type TauriDatabaseModule = {
 export interface TauriAdapterConfig {
 	database: string;
 	debug?: boolean;
-	pragmas?: string[];
 }
 
+/**
+ * No transactions: tauri-plugin-sql pools connections, so BEGIN and COMMIT can
+ * reach different ones (tauri-apps/plugins-workspace#886).
+ */
 export class TauriAdapter implements DatabaseAdapter {
 	private db: TauriDatabase | null = null;
-	private inTransactionFlag: boolean = false;
 	private debug: boolean = false;
 	private config: TauriAdapterConfig;
 	private initPromise: Promise<void> | null = null;
@@ -58,19 +60,9 @@ export class TauriAdapter implements DatabaseAdapter {
 
 		this.db = await tauriSqlModule.default.load(this.config.database);
 
-		const defaultPragmas = [
-			'PRAGMA journal_mode = WAL;',
-			'PRAGMA foreign_keys = ON;',
-			'PRAGMA case_sensitive_like = OFF;',
-			'PRAGMA busy_timeout = 30000;',
-			'PRAGMA synchronous = NORMAL;',
-		];
-
-		const pragmas = this.config.pragmas || defaultPragmas;
-
-		for (const pragma of pragmas) {
-			await this.db.execute(pragma);
-		}
+		// Stored in the database file, so one pooled connection is enough. A
+		// per-connection PRAGMA would reach only the connection that ran it.
+		await this.db.execute('PRAGMA journal_mode = WAL;');
 	}
 
 	private ensureInitialized(): TauriDatabase {
@@ -136,46 +128,6 @@ export class TauriAdapter implements DatabaseAdapter {
 
 		const result = await db.execute(sql, params);
 		return result.lastInsertId || 0;
-	}
-
-	async beginTransaction(): Promise<void> {
-		const db = this.ensureInitialized();
-
-		if (this.inTransactionFlag) {
-			return;
-		}
-
-		await db.execute('BEGIN TRANSACTION');
-		this.inTransactionFlag = true;
-	}
-
-	async commit(): Promise<void> {
-		const db = this.ensureInitialized();
-
-		if (!this.inTransactionFlag) {
-			throw new Error('No transaction in progress');
-		}
-
-		await db.execute('COMMIT');
-		this.inTransactionFlag = false;
-	}
-
-	async rollback(): Promise<void> {
-		const db = this.ensureInitialized();
-
-		if (!this.inTransactionFlag) {
-			throw new Error('No transaction in progress');
-		}
-
-		try {
-			await db.execute('ROLLBACK');
-		} finally {
-			this.inTransactionFlag = false;
-		}
-	}
-
-	inTransaction(): boolean {
-		return this.inTransactionFlag;
 	}
 
 	async close(): Promise<void> {

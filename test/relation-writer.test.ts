@@ -11,7 +11,8 @@ import { describe, expect, test } from 'bun:test';
 
 import { Model } from '../src/model';
 import { ORM } from '../src/orm';
-import { freshDatabase } from './helpers/setup';
+import type { BunSqliteAdapter } from './helpers/adapter';
+import { freshDatabase, freshPlainDatabase } from './helpers/setup';
 
 class Tag extends Model<Tag> {
 	static config = {
@@ -251,6 +252,75 @@ describe('transaction isolation', () => {
 		await synced;
 
 		expect(await tags()).toEqual(['hero:0']);
+	});
+});
+
+describe('a transaction only when the work needs one', () => {
+	const transactionStatements = (adapter: BunSqliteAdapter) =>
+		adapter.log.filter(e => e.kind === 'transaction').map(e => e.sql);
+
+	test('a one-statement sync issues no BEGIN', async () => {
+		const { adapter } = await freshDatabase();
+		const owner = await Owner.create({
+			ref: 'alice',
+			name: 'Alice',
+			is_player: 0,
+			pron_plural: 0,
+		});
+
+		await owner.relation('tags').sync(['hero', 'mage']);
+
+		expect(transactionStatements(adapter)).toEqual([]);
+	});
+
+	test('a sync that adds and removes runs in one transaction', async () => {
+		const { adapter } = await freshDatabase();
+		const owner = await Owner.create({
+			ref: 'alice',
+			name: 'Alice',
+			is_player: 0,
+			pron_plural: 0,
+		});
+		await owner.relation('tags').sync(['hero', 'mage']);
+
+		adapter.clearLog();
+		await owner.relation('tags').sync(['hero', 'rogue']);
+
+		expect(transactionStatements(adapter)).toEqual(['BEGIN', 'COMMIT']);
+	});
+});
+
+describe('adapters without transactions', () => {
+	const plainOwner = async () => {
+		const context = await freshPlainDatabase();
+		const owner = await Owner.create({
+			ref: 'alice',
+			name: 'Alice',
+			is_player: 0,
+			pron_plural: 0,
+		});
+		return { ...context, owner };
+	};
+
+	test('a one-statement sync runs', async () => {
+		const { owner } = await plainOwner();
+
+		await owner.relation('tags').sync(['hero', 'mage']);
+
+		expect(await tags()).toEqual(['hero:0', 'mage:0']);
+	});
+
+	test('a sync needing several statements is refused before writing', async () => {
+		const { adapter, owner } = await plainOwner();
+		await owner.relation('tags').sync(['hero', 'mage']);
+
+		adapter.clearLog();
+		await expect(
+			owner.relation('tags').sync(['hero', 'rogue']),
+		).rejects.toThrow(/needs 2 statements to land together/);
+
+		expect(adapter.log.filter(e => e.kind !== 'query')).toEqual([]);
+		expect(await tags()).toEqual(['hero:0', 'mage:0']);
 	});
 });
 

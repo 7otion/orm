@@ -6,11 +6,13 @@
 import { ORM, type ORMConfig } from '../../src/orm';
 import { SQLiteDialect } from '../../src/plugins/dialects/sqlite';
 
-import { BunSqliteAdapter } from './adapter';
+import { BunSqliteAdapter, PlainBunSqliteAdapter } from './adapter';
 import { SCHEMA } from './schema';
 
-export interface TestContext {
-	adapter: BunSqliteAdapter;
+export interface TestContext<
+	A extends PlainBunSqliteAdapter = BunSqliteAdapter,
+> {
+	adapter: A;
 	orm: ORM;
 }
 
@@ -18,7 +20,20 @@ export interface TestContext {
 export async function freshDatabase(
 	options: Partial<ORMConfig> = {},
 ): Promise<TestContext> {
-	const adapter = new BunSqliteAdapter();
+	return initialize(new BunSqliteAdapter(), options);
+}
+
+/** The same database behind an adapter without transactions. */
+export async function freshPlainDatabase(
+	options: Partial<ORMConfig> = {},
+): Promise<TestContext<PlainBunSqliteAdapter>> {
+	return initialize(new PlainBunSqliteAdapter(), options);
+}
+
+async function initialize<A extends PlainBunSqliteAdapter>(
+	adapter: A,
+	options: Partial<ORMConfig>,
+): Promise<TestContext<A>> {
 	adapter.db.exec(SCHEMA);
 
 	await ORM.reInitialize({

@@ -10,7 +10,7 @@ nothing in the core is SQLite-specific.
   morphMany, with eager loading and nested paths.
 - **Column casts** — `boolean`, `json` and `date` built in, or write your own.
 - **Dirty tracking** — updates write only the columns that changed.
-- **Transactions** — nested calls pass the handle and run inside the outermost one.
+- **Transactions** — on adapters that support them; nested calls pass the handle.
 - **Write queue** — serialises writes for databases that need it.
 
 ## Install
@@ -45,6 +45,14 @@ ORM.initialize({
 
 Use `ORM.reInitialize(config)` to swap databases at runtime; it closes the
 previous connection first.
+
+`TauriAdapter` supports no transactions. `tauri-plugin-sql` runs each call on
+a connection taken from a pool, so a `BEGIN` and its `COMMIT` can reach different
+connections ([tauri-apps/plugins-workspace#886](https://github.com/tauri-apps/plugins-workspace/issues/886)).
+Anything that needs a transaction is refused on it — see
+[Transactions](#transactions). For the same reason it sets only
+`journal_mode = WAL`, which SQLite stores in the database file; a per-connection
+setting would reach one pooled connection.
 
 ## Defining models
 
@@ -272,8 +280,8 @@ omits a column keeps that column's database default instead of being bound
 
 ### Bulk updates
 
-`updateMany()` writes every model's pending changes in one statement, the way
-`save()` writes one model's:
+`updateMany()` writes every model's pending changes in as few statements as the
+dialect's parameter limit allows, the way `save()` writes one model's:
 
 ```ts
 const fragments = await Fragment.query().where('owner_ref', 'alice').get();
@@ -291,6 +299,16 @@ nothing.
 
 Use this when the values differ per model; when one value applies to everything,
 `Model.query().where(…).update({ … })` is the smaller statement.
+
+### Bulk writes and transactions
+
+A `createMany()` or `updateMany()` that fits in one statement runs as that
+statement, with no transaction around it. One that the parameter limit splits
+into several runs them in one transaction, so they land or fail together. On an
+adapter without transactions that is refused before anything is written — split
+the rows into calls that each fit one statement.
+
+Pass a transaction's handle to run either inside that transaction instead.
 
 ### Mass assignment
 
@@ -558,10 +576,14 @@ await character.relation('tags').sync(['hero', 'rogue']);
 
 It works by difference: rows missing from the database are created, rows absent
 from your set are deleted, a row whose other columns moved is updated, and
-anything already right is left untouched. It runs in one transaction, so a
-failure part way leaves the set as it was — unlike the usual hand-written
-version, which deletes everything first and loses the lot if a later insert
-fails.
+anything already right is left untouched. When that takes more than one
+statement they run in one transaction, so a failure part way leaves the set as it
+was — unlike the usual hand-written version, which deletes everything first and
+loses the lot if a later insert fails. On an adapter without transactions such a
+`sync` is refused before it writes; one that needs a single statement still runs.
+
+The current rows are read inside the same queued unit, so writes queued ahead of
+a `sync` are part of its difference.
 
 Members are bare values when one column identifies them, or whole rows when more
 than one does:
@@ -606,6 +628,10 @@ changes.
 
 ## Transactions
 
+Transactions need an adapter that implements `TransactionalAdapter` (see
+[Adapters](#adapters)). On any other, `transaction()` throws before its callback
+runs.
+
 `transaction` is an instance method. It hands the callback a handle, and every
 write inside must carry it:
 
@@ -635,6 +661,13 @@ write, and a call from unrelated code waits for the open transaction to end.
 
 Reads take no handle. They are never queued, and inside the transaction they
 already see its own uncommitted rows.
+
+Some failures make the database roll the whole transaction back rather than
+just the failing statement — disk full, an I/O error. When a write inside a
+transaction fails, the ORM asks the adapter whether the transaction is still
+open; if it is not, later writes carrying the handle are refused and the
+transaction rejects instead of committing. A failure that leaves it open, such as
+a constraint violation you catch, lets the transaction carry on.
 
 ### Why the handle
 
@@ -682,18 +715,6 @@ export class MyAdapter implements DatabaseAdapter {
 	async insert(sql: string, params?: QueryValue[]): Promise<number> {
 		/* new row id */
 	}
-	async beginTransaction(): Promise<void> {
-		/* … */
-	}
-	async commit(): Promise<void> {
-		/* … */
-	}
-	async rollback(): Promise<void> {
-		/* … */
-	}
-	inTransaction(): boolean {
-		/* … */
-	}
 	async close(): Promise<void> {
 		/* … */
 	}
@@ -702,6 +723,42 @@ export class MyAdapter implements DatabaseAdapter {
 
 `insert()` must return the generated row id — that is what an omitted primary
 key adopts.
+
+An adapter that can run transactions implements `TransactionalAdapter`, which
+adds four methods:
+
+```ts
+import type { TransactionalAdapter } from '@7otion/orm';
+
+export class MyTransactionalAdapter
+	extends MyAdapter
+	implements TransactionalAdapter
+{
+	async beginTransaction(): Promise<void> {
+		/* BEGIN */
+	}
+	async commit(): Promise<void> {
+		/* COMMIT */
+	}
+	async rollback(): Promise<void> {
+		/* ROLLBACK */
+	}
+	async inTransaction(): Promise<boolean> {
+		/* the database's own state — for SQLite, !sqlite3_get_autocommit() */
+	}
+}
+```
+
+`BEGIN`, the statements after it and `COMMIT` or `ROLLBACK` are separate calls,
+so every call must reach the same connection. An adapter over a connection pool
+cannot promise that and must not implement `TransactionalAdapter`.
+
+`inTransaction()` must read the database, not a flag the adapter keeps: it is
+asked after a failure, when only the database knows whether the transaction
+survived.
+
+The ORM decides by which interface the adapter implements. One that has some of
+the four methods but not all is refused when the ORM is initialised.
 
 ## Dialects
 
@@ -725,7 +782,8 @@ belong in the statement text.
 ## Notes and limits
 
 - **No result caching.** Queries go straight to the adapter.
-- **No connection pooling or multi-connection support.** One adapter at a time.
+- **One adapter at a time.** A `TransactionalAdapter` must also reach a single
+  connection; see [Adapters](#adapters).
 - **Relations do not support composite keys** — the first key column is used.
 - **`Object.assign` bypasses `fillable`/`guarded`** and can write internal
   state. Use `fill()` for anything you did not construct yourself.

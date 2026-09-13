@@ -3,7 +3,7 @@
  * Initialised once at startup.
  */
 
-import type { DatabaseAdapter } from './adapter';
+import type { DatabaseAdapter, TransactionalAdapter } from './adapter';
 import type { SqlDialect } from './dialect';
 import {
 	Transaction,
@@ -20,21 +20,31 @@ export interface ORMConfig {
 	watchdogMs?: number;
 }
 
+const TRANSACTION_METHODS = [
+	'beginTransaction',
+	'commit',
+	'rollback',
+	'inTransaction',
+] as const;
+
 export class ORM {
 	private static instance: ORM | null = null;
 
 	private adapter: DatabaseAdapter;
+	/** The same adapter when it implements `TransactionalAdapter`, otherwise null. */
+	private transactions: TransactionalAdapter | null;
 	private dialect: SqlDialect;
 	private enableWriteQueue: boolean = false;
 	private watchdogMs: number;
 
-	/** The book: one serial chain. A transaction is itself an entry in it. */
+	/** The book: one serial chain. A unit of writes is itself an entry in it. */
 	private book: Promise<unknown> = Promise.resolve();
 
 	private active: Transaction | null = null;
 
 	private constructor(config: ORMConfig) {
 		this.adapter = config.adapter;
+		this.transactions = ORM.transactionsOf(config.adapter);
 		this.dialect = config.dialect;
 		this.enableWriteQueue = config.enableWriteQueue ?? false;
 		this.watchdogMs = config.watchdogMs ?? 2000;
@@ -47,11 +57,14 @@ export class ORM {
 	}
 
 	static async reInitialize(config: ORMConfig): Promise<void> {
+		// Built first, so a refused config leaves the current connection open.
+		const next = new ORM(config);
+
 		if (ORM.instance) {
 			await ORM.instance.close();
 		}
 
-		ORM.instance = new ORM(config);
+		ORM.instance = next;
 	}
 
 	static getInstance(): ORM {
@@ -84,9 +97,33 @@ export class ORM {
 		tx?: Transaction,
 		label: string = 'transaction()',
 	): Promise<T> {
+		if (!this.transactions) {
+			throw this.unsupported(label);
+		}
+
+		return this.queueUnit(
+			async unit => {
+				await this.ensureAtomic(unit, Infinity, label);
+				// Re-entered, as the await above left the marker frame behind.
+				return ormTransactionBody(callback, unit);
+			},
+			tx,
+			label,
+		);
+	}
+
+	/**
+	 * Runs work as one queued unit that holds other writes back until it ends.
+	 * Given a unit's handle, it runs inside that unit instead.
+	 */
+	async queueUnit<T>(
+		work: (unit: Transaction) => Promise<T>,
+		tx?: Transaction,
+		label: string = 'A write',
+	): Promise<T> {
 		if (tx) {
 			return this.queueWrite(
-				() => ormTransactionBody(callback, tx),
+				() => ormTransactionBody(work, tx),
 				tx,
 				label,
 			);
@@ -98,13 +135,32 @@ export class ORM {
 
 		// Queued like any write, so it runs after whatever is already pending
 		// and everything issued later runs after it.
-		return this.enqueue(() => this.runTransaction(callback), label);
+		return this.enqueue(() => this.runUnit(work, label), label);
+	}
+
+	/**
+	 * Issues BEGIN for a unit whose work spans several statements. Must be called
+	 * before the unit's first write; refuses on an adapter without transactions.
+	 */
+	async ensureAtomic(
+		unit: Transaction,
+		statements: number,
+		label: string,
+	): Promise<void> {
+		if (statements <= 1 || unit.hasBegun()) return;
+
+		if (!this.transactions) {
+			throw this.unsupported(label, statements);
+		}
+
+		await this.transactions.beginTransaction();
+		unit.markBegun();
 	}
 
 	/**
 	 * Serialises a write behind any already in flight. A write carrying the open
-	 * transaction's handle runs immediately: it is that transaction, and queuing
-	 * it would make the transaction wait on itself. Reads are never queued.
+	 * unit's handle runs immediately: it is that unit, and queuing it would make
+	 * the unit wait on itself. Reads are never queued.
 	 */
 	async queueWrite<T>(
 		operation: () => Promise<T>,
@@ -112,18 +168,30 @@ export class ORM {
 		label?: string,
 	): Promise<T> {
 		if (tx) {
-			if (tx !== this.active) {
+			if (tx !== this.active || !tx.isOpen()) {
 				throw new Error(
 					`[orm] This transaction has already ended, so ${label ?? 'this write'} cannot join it. ` +
 						`A tx handle is only valid inside the transaction() callback that received it.`,
 				);
 			}
-			return operation();
+			if (tx.wasRolledBackByDatabase()) {
+				throw this.rolledBackByDatabase(label ?? 'This write');
+			}
+			if (!tx.hasBegun()) {
+				return operation();
+			}
+
+			try {
+				return await operation();
+			} catch (error) {
+				await this.noticeDatabaseRollback(tx);
+				throw error;
+			}
 		}
 
 		if (this.active) {
 			// Reading the stack is affordable here: only an untokened write
-			// during a transaction reaches it.
+			// during a unit reaches it.
 			if (calledFromTransactionBody()) {
 				throw this.missingHandle(label);
 			}
@@ -137,35 +205,48 @@ export class ORM {
 		return this.enqueue(operation);
 	}
 
-	/** Must be called from the book: the transaction is its own entry. */
-	private async runTransaction<T>(
-		callback: (tx: Transaction) => Promise<T>,
+	/** Must be called from the book: the unit is its own entry. */
+	private async runUnit<T>(
+		work: (unit: Transaction) => Promise<T>,
+		label: string,
 	): Promise<T> {
-		const tx = new Transaction();
-		// Set before BEGIN, so a write issued while it is in flight is held.
-		this.active = tx;
+		const unit = new Transaction();
+		// Set before any statement, so a write issued meanwhile is held.
+		this.active = unit;
 
 		try {
-			await this.adapter.beginTransaction();
+			const result = await ormTransactionBody(work, unit);
 
-			try {
-				const result = await ormTransactionBody(callback, tx);
-				await this.adapter.commit();
-				return result;
-			} catch (error) {
-				await this.rollbackAfterFailure();
-				throw error;
+			if (unit.hasBegun()) {
+				if (unit.wasRolledBackByDatabase()) {
+					throw this.rolledBackByDatabase(label);
+				}
+				await this.transactions!.commit();
 			}
+
+			return result;
+		} catch (error) {
+			if (unit.hasBegun()) await this.rollbackAfterFailure();
+			throw error;
 		} finally {
-			tx.close();
+			unit.close();
 			this.active = null;
+		}
+	}
+
+	/** A write inside a transaction failed; SQLite may have rolled the whole transaction back. */
+	private async noticeDatabaseRollback(unit: Transaction): Promise<void> {
+		if (!(await this.transactions!.inTransaction())) {
+			unit.markRolledBackByDatabase();
 		}
 	}
 
 	/** A failed rollback is reported rather than thrown, so the error that caused it survives. */
 	private async rollbackAfterFailure(): Promise<void> {
 		try {
-			await this.adapter.rollback();
+			if (await this.transactions!.inTransaction()) {
+				await this.transactions!.rollback();
+			}
 		} catch (rollbackError) {
 			console.error(
 				'[orm] Rolling back after a failed transaction failed too; the original error is rethrown.',
@@ -182,7 +263,27 @@ export class ORM {
 		);
 	}
 
-	/** Appends to the book, warning if a transaction holds it up for too long. */
+	private rolledBackByDatabase(label: string): Error {
+		return new Error(
+			`[orm] ${label} cannot continue: a statement inside its transaction failed and the ` +
+				`database rolled the whole transaction back, so nothing in it was committed.`,
+		);
+	}
+
+	/** `statements` is omitted when the work cannot be counted, as with `transaction()`. */
+	private unsupported(label: string, statements?: number): Error {
+		const adapter = this.adapter.constructor?.name ?? 'The adapter';
+
+		return new Error(
+			statements === undefined
+				? `[orm] ${label} needs a transaction, and ${adapter} does not implement TransactionalAdapter.`
+				: `[orm] ${label} needs ${statements} statements to land together, and ${adapter} does not ` +
+						`implement TransactionalAdapter. Split the work into calls that each fit one statement, ` +
+						`or use an adapter that supports transactions.`,
+		);
+	}
+
+	/** Appends to the book, warning if a unit holds it up for too long. */
 	private enqueue<T>(
 		operation: () => Promise<T>,
 		label?: string,
@@ -203,8 +304,33 @@ export class ORM {
 		return setTimeout(() => {
 			console.warn(
 				`[orm] ${label ?? 'A write'} has been waiting ${this.watchdogMs}ms for an open ` +
-					`transaction to finish. It will run once the transaction ends.`,
+					`transaction to finish. It will run once the transaction ends. If it was issued ` +
+					`inside that transaction's callback, it is missing its tx handle and the ` +
+					`transaction will wait on it forever.`,
 			);
 		}, this.watchdogMs);
+	}
+
+	/** An adapter implementing only some of the transaction methods is refused outright. */
+	private static transactionsOf(
+		adapter: DatabaseAdapter,
+	): TransactionalAdapter | null {
+		const candidate = adapter as Partial<TransactionalAdapter>;
+		const present = TRANSACTION_METHODS.filter(
+			method => typeof candidate[method] === 'function',
+		);
+
+		if (present.length === 0) return null;
+		if (present.length === TRANSACTION_METHODS.length) {
+			return adapter as TransactionalAdapter;
+		}
+
+		const missing = TRANSACTION_METHODS.filter(
+			method => !present.includes(method),
+		);
+		throw new Error(
+			`[orm] ${adapter.constructor?.name ?? 'The adapter'} implements part of TransactionalAdapter ` +
+				`but not ${missing.join(', ')}. Implement all of it, or none.`,
+		);
 	}
 }

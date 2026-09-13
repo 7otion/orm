@@ -1,5 +1,6 @@
 /** Reconciles the set of rows on the far side of a to-many relation. */
 
+import { BulkWriter } from './bulk-writer';
 import { ORM } from './orm';
 import { HasMany } from './relationships/hasMany';
 import { MorphMany } from './relationships/morphMany';
@@ -9,6 +10,7 @@ import {
 	dynamicWhere,
 	getAttribute,
 } from './internal';
+import type { Patch } from './columns';
 import type { Model, ModelStatic } from './model';
 import type { QueryBuilder } from './query-builder';
 import type { DatabaseRow } from './types';
@@ -51,7 +53,8 @@ export class RelationWriter<T extends Model<T>> {
 	/**
 	 * Makes the far side hold exactly these rows: missing ones are created,
 	 * absent ones deleted, and matched ones updated where they differ. Rows that
-	 * are already right are left alone. One transaction.
+	 * are already right are left alone. One transaction when that takes several
+	 * statements.
 	 */
 	async sync(
 		members: RelationMember[],
@@ -61,8 +64,11 @@ export class RelationWriter<T extends Model<T>> {
 		const match = this.matchColumns(options.matchOn);
 		const incoming = members.map(member => this.toRow(member, match));
 
+		const orm = ORM.getInstance();
+		const label = `${this.parent.constructor.name}.relation('${this.name}').sync()`;
+
 		// The diff is taken inside the unit, so writes queued ahead of it are seen.
-		const result = await ORM.getInstance().transaction(
+		const result = await orm.queueUnit(
 			async handle => {
 				const existing = await this.load();
 				const byKey = new Map(
@@ -93,6 +99,15 @@ export class RelationWriter<T extends Model<T>> {
 					model => !seen.has(this.keyOf(model, match)),
 				);
 
+				const writer = new BulkWriter(this.related());
+				await orm.ensureAtomic(
+					handle,
+					(remove.length > 0 ? 1 : 0) +
+						writer.insertStatementCount(create as Patch<T>[]) +
+						writer.updateStatementCount(update),
+					label,
+				);
+
 				if (remove.length > 0) {
 					await this.matching(
 						remove.map(model => this.rowOf(model, match)),
@@ -114,7 +129,7 @@ export class RelationWriter<T extends Model<T>> {
 				};
 			},
 			tx,
-			`${this.parent.constructor.name}.relation('${this.name}').sync()`,
+			label,
 		);
 
 		this.invalidate();
