@@ -47,8 +47,9 @@ export declare class ModelEvents<T extends Model<T>> {
     private hooksFor;
     /** Returns the unsubscribe. Registering the same function twice registers it once. */
     on(event: ModelEvent, listener: Listener<T>): () => void;
-    /** Whether any hook or listener is registered for any of these events. */
+    /** Whether anything, per class or global, is registered for any of these events. */
     has(events: readonly ModelEvent[]): boolean;
+    private static reported;
     hasHooks(events: readonly ModelEvent[]): boolean;
     /**
      * A unit when something is registered for its events, so hooks have a

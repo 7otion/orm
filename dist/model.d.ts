@@ -17,7 +17,7 @@ import { Caster } from './casts';
 import { ModelEvents, type Listener, type ModelEvent, type ModelHooks } from './events';
 import { Timestamps } from './timestamps';
 import { RelationWriter } from './relation-writer';
-import type { Transaction } from './transaction';
+import { type Transaction } from './transaction';
 export interface ModelConstructor<TModel extends Model<TModel>> {
     new (): TModel;
     config: ModelConfig;
@@ -72,6 +72,11 @@ export declare abstract class Model<T extends Model<T>> {
     private static _eventsCache;
     /** The model's listeners, one registry per class. */
     static get events(): ModelEvents<any>;
+    private static _reachableCache;
+    /** Whether a change to `instance` can show through this model: it is one, or reachable through relations. */
+    static affectedBy(instance: object): boolean;
+    /** Every class reachable through relations, transitively. Resolved once per class. */
+    private static reachable;
     /** Runs after a write of this model commits. Returns the unsubscribe. */
     static on<T extends Model<T>>(this: ModelStatic<T>, event: ModelEvent, listener: Listener<T>): () => void;
     /**

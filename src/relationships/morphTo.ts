@@ -26,6 +26,10 @@ export class MorphTo<T extends Model<T>> implements LoadableRelation {
 		return [this.config.foreignKeyField, this.config.discriminatorField];
 	}
 
+	getMorphTargets(): ModelConstructor<any>[] {
+		return Object.values(this.config.morphMap);
+	}
+
 	async get(parent?: Model<any>): Promise<T | null> {
 		const instance = (parent ?? this.parent) as Model<any>;
 		const discriminatorValue = getAttribute(

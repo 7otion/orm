@@ -4,6 +4,7 @@
  */
 import type { DatabaseAdapter } from './adapter';
 import type { SqlDialect } from './dialect';
+import { type InstanceChangeListener } from './instance-changes';
 import { Transaction } from './transaction';
 export interface ORMConfig {
     adapter: DatabaseAdapter;
@@ -41,6 +42,11 @@ export declare class ORM {
      * Given a unit's handle, it runs inside that unit instead.
      */
     queueUnit<T>(work: (unit: Transaction) => Promise<T>, tx?: Transaction, label?: string): Promise<T>;
+    /**
+     * Told which instances a committed write or a `refresh()` changed. Static,
+     * so it outlives `reInitialize`. Returns the unsubscribe.
+     */
+    static onInstanceChange(listener: InstanceChangeListener): () => void;
     /**
      * Begins the unit before a hook can write. Without transactions the unit
      * still runs, but a nested write into it is refused.

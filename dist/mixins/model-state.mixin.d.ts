@@ -38,6 +38,8 @@ export interface ModelState {
     /** Provided by RelationshipLoaderMixin. */
     load(relationshipName: string): Promise<void>;
     /** @internal Provided by RelationshipLoaderMixin. */
+    reloadRelation(relationshipName: string): Promise<boolean>;
+    /** @internal Provided by RelationshipLoaderMixin. */
     clearAffectedRelationships(dirtyFields: string[]): string[];
 }
 //# sourceMappingURL=model-state.mixin.d.ts.map

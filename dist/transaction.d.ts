@@ -31,6 +31,7 @@ export declare class Transaction {
     /** Rows a delete in this unit has claimed, by class and key signature. */
     private readonly deleting;
     private deferred;
+    private changed;
     /** @internal */
     isOpen(): boolean;
     /** @internal */
@@ -55,8 +56,13 @@ export declare class Transaction {
     exitHooks(): void;
     /** @internal Held until the unit commits; dropped if it rolls back. */
     defer(batch: EventBatch<any>, run: () => void | Promise<void>): void;
-    /** @internal Runs every deferred listener once, collecting failures rather than stopping. */
-    notify(): Promise<ListenerFailure[]>;
+    /** @internal Instances to report once the unit commits, as one batch. */
+    deferChanged(models: readonly object[]): void;
+    /**
+     * @internal Runs every deferred listener, then reports the changed
+     * instances once. Failures are collected rather than stopping.
+     */
+    notify(report: (models: readonly object[]) => Promise<ListenerFailure[]>): Promise<ListenerFailure[]>;
 }
 /**
  * A uniquely named frame, so an untokened write can tell it came from inside

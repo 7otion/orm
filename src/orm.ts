@@ -6,6 +6,10 @@
 import type { DatabaseAdapter, TransactionalAdapter } from './adapter';
 import type { SqlDialect } from './dialect';
 import {
+	type InstanceChangeListener,
+	instanceChanges,
+} from './instance-changes';
+import {
 	ListenerError,
 	Transaction,
 	calledFromTransactionBody,
@@ -142,12 +146,22 @@ export class ORM {
 		);
 
 		// The queue is released, so a listener's own write cannot wait on itself.
-		const failures = await unit.notify();
+		const failures = await unit.notify(models =>
+			instanceChanges.report(models),
+		);
 		if (failures.length > 0) {
 			throw new ListenerError(result, failures);
 		}
 
 		return result;
+	}
+
+	/**
+	 * Told which instances a committed write or a `refresh()` changed. Static,
+	 * so it outlives `reInitialize`. Returns the unsubscribe.
+	 */
+	static onInstanceChange(listener: InstanceChangeListener): () => void {
+		return instanceChanges.on(listener);
 	}
 
 	/**

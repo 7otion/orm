@@ -1,9 +1,12 @@
 /** Lifecycle events a model's writes fire, and who is told. */
 
 import { ORM } from './orm';
+import { instanceChanges } from './instance-changes';
 import type { Transaction } from './transaction';
 import type { Model, ModelClassRef } from './model';
 import type { ColumnKeys } from './columns';
+
+const REPORTED: ReadonlySet<ModelEvent> = new Set(['saved', 'deleted']);
 
 export type ModelEvent =
 	| 'saving'
@@ -111,13 +114,18 @@ export class ModelEvents<T extends Model<T>> {
 		};
 	}
 
-	/** Whether any hook or listener is registered for any of these events. */
+	/** Whether anything, per class or global, is registered for any of these events. */
 	has(events: readonly ModelEvent[]): boolean {
 		return events.some(
 			event =>
 				this.hooksFor(event).length > 0 ||
-				(this.listeners.get(event)?.size ?? 0) > 0,
+				(this.listeners.get(event)?.size ?? 0) > 0 ||
+				ModelEvents.reported(event),
 		);
+	}
+
+	private static reported(event: ModelEvent): boolean {
+		return REPORTED.has(event) && instanceChanges.size > 0;
 	}
 
 	hasHooks(events: readonly ModelEvent[]): boolean {
@@ -172,6 +180,10 @@ export class ModelEvents<T extends Model<T>> {
 
 		const hooks = this.hooksFor(event);
 		const listeners = this.listeners.get(event);
+		const reported = ModelEvents.reported(event);
+		if (hooks.length === 0 && !listeners?.size && !reported) return;
+
+		if (reported) unit.deferChanged(models);
 		if (hooks.length === 0 && !listeners?.size) return;
 
 		const batch = new EventBatch<T>(

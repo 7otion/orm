@@ -772,6 +772,205 @@ describe('adapters without transactions', () => {
 	});
 });
 
+describe('instance changes', () => {
+	function collect(): { reports: string[][]; off: () => void } {
+		const reports: string[][] = [];
+		const off = ORM.onInstanceChange(models => {
+			reports.push(
+				models.map(
+					model =>
+						`${model.constructor.name}:${(model as { ref?: string; id?: number }).ref ?? (model as { id?: number }).id}`,
+				),
+			);
+		});
+		listen(off);
+		return { reports, off };
+	}
+
+	test('a save on a class with no hooks or listeners is reported', async () => {
+		await freshDatabase();
+		const { reports } = collect();
+
+		const piece = await Piece.create({
+			schema_ref: 's',
+			owner_ref: 'o',
+			suffix: 'a',
+		});
+		piece.content = 'x';
+		await piece.save();
+
+		expect(reports).toEqual([[`Piece:${piece.id}`], [`Piece:${piece.id}`]]);
+	});
+
+	test('a bulk write reports its batch once', async () => {
+		await freshDatabase();
+		const { reports } = collect();
+
+		const pieces = await Piece.createMany([
+			{ schema_ref: 's', owner_ref: 'o', suffix: 'a' },
+			{ schema_ref: 's', owner_ref: 'o', suffix: 'b' },
+		]);
+		expect(reports).toHaveLength(1);
+		expect(reports[0]).toHaveLength(2);
+
+		reports.length = 0;
+		for (const piece of pieces) piece.sort = 3;
+		await Piece.updateMany(pieces);
+		expect(reports).toEqual([pieces.map(piece => `Piece:${piece.id}`)]);
+
+		reports.length = 0;
+		await Piece.query().where('owner_ref', 'o').delete();
+		expect(reports).toHaveLength(1);
+		expect(reports[0]).toHaveLength(2);
+	});
+
+	test('a cascade reports once, after commit, with every instance', async () => {
+		const { adapter } = await freshDatabase();
+		const alice = await seedAuthorWithTags();
+
+		slots.author.deleting = async (batch, tx) => {
+			await AuthorTag.query()
+				.whereIn(
+					'character_ref',
+					batch.models.map(author => author.ref),
+				)
+				.delete(tx);
+		};
+
+		const seen: string[] = [];
+		listen(
+			ORM.onInstanceChange(models => {
+				seen.push(
+					...models.map(model => model.constructor.name),
+					transactionStatements(adapter).at(-1)!,
+				);
+			}),
+		);
+
+		adapter.clearLog();
+		await alice.delete();
+
+		expect(seen).toEqual(['AuthorTag', 'AuthorTag', 'Author', 'COMMIT']);
+	});
+
+	test('nothing is reported for a write that rolled back', async () => {
+		await freshDatabase();
+		const { reports } = collect();
+
+		slots.author.saved = () => {
+			throw new Error('nope');
+		};
+
+		await expect(newAuthor('alice')).rejects.toThrow('nope');
+		expect(reports).toEqual([]);
+	});
+
+	test('refresh() reports the refreshed instance', async () => {
+		await freshDatabase();
+		const alice = await newAuthor('alice');
+		const { reports } = collect();
+
+		await alice.refresh();
+
+		expect(reports).toEqual([['Author:alice']]);
+	});
+
+	test('load() reports once per load that ran', async () => {
+		await freshDatabase();
+		const alice = await seedAuthorWithTags();
+		const { reports } = collect();
+
+		await alice.load('tags');
+		await alice.load('tags');
+
+		expect(reports).toEqual([['Author:alice']]);
+	});
+
+	test('a relation reloaded inside a write is covered by the write itself', async () => {
+		await freshDatabase();
+		const alice = await seedAuthorWithTags();
+		await alice.load('tags');
+		const { reports } = collect();
+
+		// Renaming the key clears and reloads `tags` inside the unit.
+		alice.ref = 'alicia';
+		await alice.save();
+
+		expect(reports).toEqual([['Author:alicia']]);
+	});
+
+	test('a failing global listener is reported as a listener failure', async () => {
+		await freshDatabase();
+		listen(
+			ORM.onInstanceChange(() => {
+				throw new Error('bridge down');
+			}),
+		);
+
+		let caught: unknown;
+		try {
+			await newAuthor('alice');
+		} catch (error) {
+			caught = error;
+		}
+
+		expect(caught).toBeInstanceOf(ListenerError);
+		expect((caught as ListenerError).failures[0]).toMatchObject({
+			event: 'changed',
+			model: 'Author',
+		});
+		expect(await Author.query().count()).toBe(1);
+	});
+
+	test('the subscription survives reInitialize and can be dropped', async () => {
+		await freshDatabase();
+		const { reports, off } = collect();
+
+		await freshDatabase();
+		await newAuthor('a');
+		expect(reports).toHaveLength(1);
+
+		off();
+		await newAuthor('b');
+		expect(reports).toHaveLength(1);
+	});
+});
+
+describe('affectedBy', () => {
+	test('an instance of the class, or of one reachable through relations', async () => {
+		await freshDatabase();
+		const author = await newAuthor('alice');
+		const [tag] = await AuthorTag.createMany([
+			{ character_ref: 'alice', tag: 'hero' },
+		]);
+		const piece = await Piece.create({
+			schema_ref: 's',
+			owner_ref: 'o',
+			suffix: 'a',
+		});
+
+		expect(Author.affectedBy(author)).toBe(true);
+		expect(Author.affectedBy(tag!)).toBe(true);
+		expect(Author.affectedBy(piece)).toBe(false);
+
+		// The tag declares no relations, so nothing shows through it.
+		expect(AuthorTag.affectedBy(author)).toBe(false);
+		expect(AuthorTag.affectedBy(tag!)).toBe(true);
+	});
+
+	test('follows nested relations and polymorphic targets', async () => {
+		const { Passage, Note, User, Role } = await import('./helpers/models');
+		await freshDatabase();
+
+		const route = new (await import('./helpers/models')).Route();
+		expect(Passage.affectedBy(route)).toBe(true);
+
+		expect(Note.affectedBy(new User())).toBe(true);
+		expect(Note.affectedBy(new Role())).toBe(true);
+		expect(User.affectedBy(new Note())).toBe(false);
+	});
+});
+
 describe('sync', () => {
 	test("fires the related class's events", async () => {
 		await freshDatabase();

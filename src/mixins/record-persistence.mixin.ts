@@ -209,7 +209,9 @@ export class RecordPersistenceMixin extends ModelState {
 				}
 
 				const cleared = this.clearAffectedRelationships(dirtyFields);
-				await Promise.all(cleared.map(name => this.load(name)));
+				await Promise.all(
+					cleared.map(name => this.reloadRelation(name)),
+				);
 
 				return this;
 			},

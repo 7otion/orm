@@ -13,6 +13,7 @@ export {
 	ListenerError,
 	type ListenerFailure,
 } from './transaction';
+export type { InstanceChangeListener } from './instance-changes';
 export {
 	EventBatch,
 	ModelEvents,

@@ -120,6 +120,27 @@ outermost commit and run in the order the events fired.
   nothing writes nothing and fires nothing.
 - Hooks nested more than 32 deep raise an error instead of hanging.
 
+## Instance changes
+
+One global subscription is told which instances a write changed, after it has
+committed, or which instance a `refresh()` or `load()` reloaded. It is the signal a UI store
+uses to re-render whatever holds those instances:
+
+```ts
+const off = ORM.onInstanceChange(models => republish(models));
+```
+
+It is static, so it survives `ORM.reInitialize`. A unit reports once, with
+every instance its writes and cascades changed, after its listeners have run.
+Nothing is reported for a write that rolled back, and nothing for an assignment
+before `save()`. A subscriber that throws is reported through `ListenerError`
+like any listener.
+
+`Model.affectedBy(instance)` says whether a change to `instance` can show
+through that model: it is one, or it is reachable through the model's relations,
+transitively. A store that holds characters asks `Character.affectedBy` and is
+told about a changed portrait file without naming `ProjectFile` itself.
+
 ## Requirements
 
 A write with hooks begins a transaction, since a hook may write. On an adapter

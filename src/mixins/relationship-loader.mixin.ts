@@ -8,6 +8,8 @@ import {
 	loadingKey,
 	setRelation,
 } from '../internal';
+import { instanceChanges } from '../instance-changes';
+import { ListenerError } from '../transaction';
 
 import type { LoadableRelation } from '../relationships/relationship';
 import { ModelState } from './model-state.mixin';
@@ -49,19 +51,27 @@ export class RelationshipLoaderMixin extends ModelState {
 		throw promise;
 	}
 
-	/** Await a relation without Suspense. */
+	/** Await a relation without Suspense. A load that ran is reported as an instance change. */
 	async load(relationshipName: string): Promise<void> {
+		if (!(await this.reloadRelation(relationshipName))) return;
+
+		const failures = await instanceChanges.report([this]);
+		if (failures.length > 0) throw new ListenerError(undefined, failures);
+	}
+
+	/** @internal Loads without reporting; false when it was already loaded. */
+	async reloadRelation(relationshipName: string): Promise<boolean> {
 		const pending = this.pending();
 
 		if (isRelationLoaded(this, relationshipName)) {
-			return;
+			return false;
 		}
 
 		const key = loadingKey(relationshipName);
 
 		if (pending[key]) {
 			await pending[key];
-			return;
+			return true;
 		}
 
 		const promise = this.loadRelationship(relationshipName);
@@ -72,6 +82,8 @@ export class RelationshipLoaderMixin extends ModelState {
 		} finally {
 			delete pending[key];
 		}
+
+		return true;
 	}
 
 	private async loadRelationship(relationshipName: string): Promise<void> {

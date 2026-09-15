@@ -8,6 +8,7 @@ export type { RelationPath } from './relation-paths';
 export type { LoadableRelation } from './relationships/relationship';
 export { ORM, type ORMConfig } from './orm';
 export { Transaction, ListenerError, type ListenerFailure, } from './transaction';
+export type { InstanceChangeListener } from './instance-changes';
 export { EventBatch, ModelEvents, type Hook, type Listener, type ModelEvent, type ModelHooks, } from './events';
 export type { DatabaseAdapter, TransactionalAdapter } from './adapter';
 export type { SqlDialect } from './dialect';

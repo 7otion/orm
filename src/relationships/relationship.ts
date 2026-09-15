@@ -27,6 +27,7 @@ export interface LoadableRelation {
 	eagerLoadFor(models: Model<any>[], relationName: string): Promise<void>;
 	getOwnerFields(): string[];
 	getRelated?(): ModelStatic<any>;
+	getMorphTargets?(): ModelClassRef[];
 }
 
 export abstract class Relationship<

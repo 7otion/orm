@@ -37,7 +37,8 @@ import {
 } from './events';
 import { Timestamps } from './timestamps';
 import { RelationWriter, toManyRelation } from './relation-writer';
-import type { Transaction } from './transaction';
+import { ListenerError, type Transaction } from './transaction';
+import { instanceChanges } from './instance-changes';
 
 export interface ModelConstructor<TModel extends Model<TModel>> {
 	new (): TModel;
@@ -151,6 +152,45 @@ export abstract class Model<T extends Model<T>> {
 			Model._eventsCache.set(this, new ModelEvents(this));
 		}
 		return Model._eventsCache.get(this)!;
+	}
+
+	private static _reachableCache = new WeakMap<typeof Model, Set<object>>();
+
+	/** Whether a change to `instance` can show through this model: it is one, or reachable through relations. */
+	static affectedBy(instance: object): boolean {
+		if (instance instanceof this) return true;
+		for (const related of this.reachable()) {
+			if (instance instanceof (related as abstract new () => object)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Every class reachable through relations, transitively. Resolved once per class. */
+	private static reachable(): Set<object> {
+		let reachable = Model._reachableCache.get(this);
+		if (reachable) return reachable;
+
+		reachable = new Set();
+		const pending: ModelClassRef[] = [this];
+		while (pending.length > 0) {
+			const current = pending.pop() as typeof Model;
+			for (const relation of Object.values(current.relationships)) {
+				const targets =
+					typeof relation.getRelated === 'function'
+						? [relation.getRelated()]
+						: (relation.getMorphTargets?.() ?? []);
+				for (const target of targets) {
+					if (target === this || reachable.has(target)) continue;
+					reachable.add(target);
+					pending.push(target);
+				}
+			}
+		}
+
+		Model._reachableCache.set(this, reachable);
+		return reachable;
 	}
 
 	/** Runs after a write of this model commits. Returns the unsubscribe. */
@@ -609,6 +649,10 @@ export abstract class Model<T extends Model<T>> {
 		if (relationships !== undefined) {
 			this._loadedPaths = new Set(relationships);
 		}
+
+		// A read that changed an instance; no unit, so reported at once.
+		const failures = await instanceChanges.report([this]);
+		if (failures.length > 0) throw new ListenerError(undefined, failures);
 	}
 }
 

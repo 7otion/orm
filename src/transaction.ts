@@ -66,6 +66,8 @@ export class Transaction {
 
 	private deferred: Deferred[] = [];
 
+	private changed: object[] = [];
+
 	/** @internal */
 	isOpen(): boolean {
 		return !this.settled;
@@ -138,10 +140,22 @@ export class Transaction {
 		this.deferred.push({ batch, run });
 	}
 
-	/** @internal Runs every deferred listener once, collecting failures rather than stopping. */
-	async notify(): Promise<ListenerFailure[]> {
+	/** @internal Instances to report once the unit commits, as one batch. */
+	deferChanged(models: readonly object[]): void {
+		this.changed.push(...models);
+	}
+
+	/**
+	 * @internal Runs every deferred listener, then reports the changed
+	 * instances once. Failures are collected rather than stopping.
+	 */
+	async notify(
+		report: (models: readonly object[]) => Promise<ListenerFailure[]>,
+	): Promise<ListenerFailure[]> {
 		const pending = this.deferred;
 		this.deferred = [];
+		const changed = [...new Set(this.changed)];
+		this.changed = [];
 
 		const failures: ListenerFailure[] = [];
 		for (const { batch, run } of pending) {
@@ -155,6 +169,9 @@ export class Transaction {
 				});
 			}
 		}
+
+		if (changed.length > 0) failures.push(...(await report(changed)));
+
 		return failures;
 	}
 }
