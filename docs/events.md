@@ -32,6 +32,9 @@ class Passage extends Model<Passage> {
 }
 ```
 
+`hooks` is read at each write, so it may also be assigned after the class
+definition; listeners registered or writes made before then are unaffected.
+
 Child cleanup belongs in `deleting`, not `deleted`: a foreign key without
 `ON DELETE CASCADE` rejects the parent's statement before `deleted` could run.
 

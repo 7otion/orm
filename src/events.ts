@@ -80,22 +80,22 @@ export class EventBatch<T> {
 	}
 }
 
-/** One model class's hooks and listeners. `Model.events` builds and caches one per class. */
+/** A model class as the registry sees it: named, and possibly declaring hooks. */
+type HookSource<T> = ModelClassRef & { readonly hooks?: ModelHooks<T> };
+
+/**
+ * One model class's listeners, and a live view of its hooks. Hooks are read
+ * off the class at each use, so assigning `hooks` late still takes effect.
+ */
 export class ModelEvents<T extends Model<T>> {
-	private readonly hooks = new Map<ModelEvent, Hook<T>[]>();
 	private readonly listeners = new Map<ModelEvent, Set<Listener<T>>>();
 
-	constructor(
-		private readonly modelClass: ModelClassRef,
-		declared: ModelHooks<T> | undefined,
-	) {
-		for (const [event, hook] of Object.entries(declared ?? {})) {
-			if (!hook) continue;
-			this.hooks.set(
-				event as ModelEvent,
-				Array.isArray(hook) ? [...hook] : [hook],
-			);
-		}
+	constructor(private readonly modelClass: HookSource<T>) {}
+
+	private hooksFor(event: ModelEvent): Hook<T>[] {
+		const declared = this.modelClass.hooks?.[event];
+		if (!declared) return [];
+		return Array.isArray(declared) ? declared : [declared];
 	}
 
 	/** Returns the unsubscribe. Registering the same function twice registers it once. */
@@ -115,13 +115,13 @@ export class ModelEvents<T extends Model<T>> {
 	has(events: readonly ModelEvent[]): boolean {
 		return events.some(
 			event =>
-				(this.hooks.get(event)?.length ?? 0) > 0 ||
+				this.hooksFor(event).length > 0 ||
 				(this.listeners.get(event)?.size ?? 0) > 0,
 		);
 	}
 
 	hasHooks(events: readonly ModelEvent[]): boolean {
-		return events.some(event => (this.hooks.get(event)?.length ?? 0) > 0);
+		return events.some(event => this.hooksFor(event).length > 0);
 	}
 
 	/**
@@ -170,7 +170,7 @@ export class ModelEvents<T extends Model<T>> {
 	): Promise<void> {
 		if (models.length === 0) return;
 
-		const hooks = this.hooks.get(event) ?? [];
+		const hooks = this.hooksFor(event);
 		const listeners = this.listeners.get(event);
 		if (hooks.length === 0 && !listeners?.size) return;
 

@@ -140,15 +140,15 @@ export abstract class Model<T extends Model<T>> {
 		return Model._castsCache.get(this)!;
 	}
 
-	/** Declared by a subclass: housekeeping that runs inside its writes. */
-	static readonly hooks?: ModelHooks<any>;
+	/** Declared by a subclass: housekeeping that runs inside its writes. Read at each write, so it may be assigned late. */
+	static hooks?: ModelHooks<any>;
 
 	private static _eventsCache = new WeakMap<typeof Model, ModelEvents<any>>();
 
-	/** The model's hooks and listeners, resolved once per class. */
+	/** The model's listeners, one registry per class. */
 	static get events(): ModelEvents<any> {
 		if (!Model._eventsCache.has(this)) {
-			Model._eventsCache.set(this, new ModelEvents(this, this.hooks));
+			Model._eventsCache.set(this, new ModelEvents(this));
 		}
 		return Model._eventsCache.get(this)!;
 	}

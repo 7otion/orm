@@ -32,12 +32,19 @@ export declare class EventBatch<T> {
     /** The value `column` held before the write; `undefined` when it did not change. */
     previous<K extends ColumnKeys<T>>(model: T, column: K): T[K] | undefined;
 }
-/** One model class's hooks and listeners. `Model.events` builds and caches one per class. */
+/** A model class as the registry sees it: named, and possibly declaring hooks. */
+type HookSource<T> = ModelClassRef & {
+    readonly hooks?: ModelHooks<T>;
+};
+/**
+ * One model class's listeners, and a live view of its hooks. Hooks are read
+ * off the class at each use, so assigning `hooks` late still takes effect.
+ */
 export declare class ModelEvents<T extends Model<T>> {
     private readonly modelClass;
-    private readonly hooks;
     private readonly listeners;
-    constructor(modelClass: ModelClassRef, declared: ModelHooks<T> | undefined);
+    constructor(modelClass: HookSource<T>);
+    private hooksFor;
     /** Returns the unsubscribe. Registering the same function twice registers it once. */
     on(event: ModelEvent, listener: Listener<T>): () => void;
     /** Whether any hook or listener is registered for any of these events. */
@@ -56,4 +63,5 @@ export declare class ModelEvents<T extends Model<T>> {
     captureFor(events: readonly ModelEvent[], models: T[]): Changes | undefined;
     private capture;
 }
+export {};
 //# sourceMappingURL=events.d.ts.map

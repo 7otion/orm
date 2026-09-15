@@ -83,6 +83,16 @@ class Memo extends Model<Memo> {
 	static readonly hooks: ModelHooks<Memo> = forwarding(slots.memo);
 }
 
+/** Declares no hooks in its body; a test assigns them after the registry exists. */
+class Late extends Model<Late> {
+	static config = { table: 'notes', timestamps: false };
+
+	id!: number;
+	body!: string;
+
+	static readonly relationships = {};
+}
+
 /** No hooks at all, so its writes stay plain unless a listener is attached. */
 class Piece extends Model<Piece> {
 	static config = { table: 'fragments', timestamps: false };
@@ -109,6 +119,7 @@ afterEach(() => {
 		for (const event of EVENTS) delete slot[event];
 	}
 	for (const unsubscribe of subscriptions.splice(0)) unsubscribe();
+	Late.hooks = undefined;
 });
 
 function transactionStatements(adapter: BunSqliteAdapter): string[] {
@@ -275,6 +286,37 @@ describe('hooks run inside the write', () => {
 		await alice.save();
 
 		expect(seen).toEqual([true, 'alice', false, true]);
+	});
+
+	test('hooks assigned after the registry exists still run', async () => {
+		const { adapter } = await freshDatabase();
+
+		const seen: string[] = [];
+		// Builds the registry before any hooks exist.
+		listen(
+			Late.on('created', () => {
+				seen.push('listener');
+			}),
+		);
+
+		Late.hooks = {
+			creating: batch => {
+				seen.push('hook');
+				for (const memo of batch.models) memo.body += '!';
+			},
+		};
+
+		adapter.clearLog();
+		const memo = await Late.create({ body: 'a' });
+
+		expect(seen).toEqual(['hook', 'listener']);
+		expect(memo.body).toBe('a!');
+		expect(transactionStatements(adapter)).toEqual(['BEGIN', 'COMMIT']);
+
+		Late.hooks = undefined;
+		seen.length = 0;
+		await Late.create({ body: 'b' });
+		expect(seen).toEqual(['listener']);
 	});
 
 	test('a created hook can create children in bulk with the keys it got', async () => {

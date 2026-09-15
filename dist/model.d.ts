@@ -67,10 +67,10 @@ export declare abstract class Model<T extends Model<T>> {
      * in as `date`.
      */
     static get casts(): Caster;
-    /** Declared by a subclass: housekeeping that runs inside its writes. */
-    static readonly hooks?: ModelHooks<any>;
+    /** Declared by a subclass: housekeeping that runs inside its writes. Read at each write, so it may be assigned late. */
+    static hooks?: ModelHooks<any>;
     private static _eventsCache;
-    /** The model's hooks and listeners, resolved once per class. */
+    /** The model's listeners, one registry per class. */
     static get events(): ModelEvents<any>;
     /** Runs after a write of this model commits. Returns the unsubscribe. */
     static on<T extends Model<T>>(this: ModelStatic<T>, event: ModelEvent, listener: Listener<T>): () => void;
