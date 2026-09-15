@@ -1,10 +1,4 @@
-/**
- * Column casts, and the SQLite boolean gap they close.
- *
- * Without these, a model wanting `is_active: boolean` had to carry a
- * `=== 1` getter and a `? 1 : 0` at every write, because SQLite stores no
- * booleans — and a driver handed a raw `true` may not even store 0/1.
- */
+/** Column casts, and the SQLite boolean gap they close. */
 
 import { describe, expect, test } from 'bun:test';
 
@@ -156,8 +150,7 @@ describe('json cast', () => {
 	])('round-trips %s', async (_label, value) => {
 		await freshDatabase();
 
-		// Strings are the trap: storing them unserialised reads back as a
-		// parse error rather than the value.
+		// A string stored unserialised reads back as a parse error.
 		await Casted.create({
 			ref: 'a',
 			is_active: false,
@@ -204,7 +197,7 @@ describe('date cast', () => {
 		expect(found.due_at).toBeInstanceOf(Date);
 		expect(found.due_at!.getTime()).toBe(DUE.getTime());
 
-		// Seconds, not milliseconds — the unit `timestamps` has always used.
+		// Seconds, not milliseconds.
 		const raw = adapter.db
 			.query(`SELECT due_at, typeof(due_at) AS ty FROM casted`)
 			.get() as { due_at: number; ty: string };
@@ -252,9 +245,7 @@ describe('date cast', () => {
 			due_at: DUE,
 		});
 
-		// The snapshot detaches the Date, so `_original` holds a different
-		// instance — compared by reference this would read dirty on every
-		// single load.
+		// The snapshot detaches the Date; comparison is by value.
 		const found = (await Casted.find('a'))!;
 		expect(found.isDirty).toBe(false);
 		expect(found.getDirty()).toEqual([]);
@@ -293,8 +284,7 @@ describe('date cast', () => {
 		});
 
 		const found = (await Casted.find('a'))!;
-		// Date is mutable, so this is the same hazard `json` has: without a
-		// detached snapshot and a value comparison, the edit is invisible.
+		// An in-place edit of a Date is tracked, as one of a json value is.
 		found.due_at!.setUTCFullYear(2031);
 
 		expect(found.getDirty()).toContain('due_at');
@@ -318,8 +308,7 @@ describe('date cast', () => {
 		found.due_at!.setUTCFullYear(2031);
 		await found.save();
 
-		// The post-save snapshot is detached too, so the model does not stay
-		// permanently dirty.
+		// The post-save snapshot is detached too.
 		expect(found.isDirty).toBe(false);
 	});
 
@@ -333,8 +322,6 @@ describe('date cast', () => {
 			due_at: null,
 		});
 
-		// The bulk path is where `json` was originally missed; a new cast type
-		// is exactly the thing likely to miss it again.
 		const affected = await Casted.query()
 			.where('ref', 'a')
 			.update({ due_at: DUE });
@@ -440,9 +427,7 @@ describe('the bulk write path casts too', () => {
 			.where('ref', 'a')
 			.update({ settings: { theme: 'dark', level: 2 } });
 
-		// Without the cast the driver is handed a raw object: the statement
-		// matches nothing, `update()` reports 0, and the edit is lost with no
-		// error anywhere.
+		// Uncast, a raw object matches nothing and the edit is lost silently.
 		expect(affected).toBe(1);
 
 		const raw = adapter.db
@@ -479,8 +464,7 @@ describe('in-place edits to a json column are tracked', () => {
 
 		const found = (await Casted.find('a'))!;
 
-		// A shallow snapshot would leave `_original.settings` as the very same
-		// object, so this edit would mutate both sides and be invisible.
+		// A shallow snapshot would share the object and hide the edit.
 		found.settings!.theme = 'dark';
 
 		expect(found.getDirty()).toContain('settings');
@@ -504,8 +488,7 @@ describe('in-place edits to a json column are tracked', () => {
 
 		const found = (await Casted.find('a'))!;
 
-		// Detaching the snapshot must not make every load look changed: the
-		// comparison is by value, not by reference.
+		// Comparison is by value, so a detached snapshot does not read dirty.
 		expect(found.isDirty).toBe(false);
 		expect(found.getDirty()).toEqual([]);
 	});
@@ -540,8 +523,7 @@ describe('in-place edits to a json column are tracked', () => {
 		found.settings!.theme = 'dark';
 		await found.save();
 
-		// The post-save snapshot is detached too, so the model settles rather
-		// than staying permanently dirty.
+		// The post-save snapshot is detached too.
 		expect(found.isDirty).toBe(false);
 	});
 });
@@ -553,12 +535,8 @@ class Money {
 }
 
 /**
- * A cast a consumer could write: it implements `ColumnCast` and nothing else,
- * with no access to ORM internals.
- *
- * The counters are how the optional hooks are shown to be *used* rather than
- * merely accepted — a `clone`/`equals` the ORM ignored would still let most
- * assertions pass by falling back to the defaults.
+ * A cast a consumer could write. The counters show `clone` and `equals` are
+ * called, not merely accepted.
  */
 let cloneCalls = 0;
 let equalsCalls = 0;
@@ -734,8 +712,7 @@ describe('custom casts', () => {
 		expect(found.is_active).toBe(true);
 		expect(found.due_at!.getTime()).toBe(due.getTime());
 
-		// Identical storage to the `'boolean'`/`'date'` spellings, because the
-		// shorthand resolves to these very objects.
+		// The shorthand resolves to these very objects.
 		const raw = (await Uncast.find('a'))!;
 		expect(raw.is_active).toBe(1);
 		expect(raw.due_at).toBe(due.getTime() / 1000);

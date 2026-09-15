@@ -1,11 +1,4 @@
-/**
- * `sync` — making the far side of a to-many relation hold exactly a given set.
- *
- * The case that motivated it is the hand-rolled version everyone writes: delete
- * every child, then re-insert the new set. That loses the lot if an insert
- * fails, churns rows that did not change, and issues one statement per row.
- * `sync` diffs instead, in one transaction.
- */
+/** `sync`: making the far side of a to-many relation hold exactly a given set, by difference. */
 
 import { describe, expect, test } from 'bun:test';
 

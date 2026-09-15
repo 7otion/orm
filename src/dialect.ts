@@ -18,10 +18,14 @@ export interface SqlDialect {
 		data: Record<string, QueryValue>,
 	): CompiledQuery;
 
-	/** Every row must carry the same columns; the caller chunks to the limit. */
+	/**
+	 * Every row carries the same columns; the caller chunks to the limit. With
+	 * `returning`, yields one row per insert holding `rowid` and those columns.
+	 */
 	compileInsertMany(
 		table: string,
 		rows: Record<string, QueryValue>[],
+		returning?: string[],
 	): CompiledQuery;
 
 	/**
@@ -52,16 +56,10 @@ export interface SqlDialect {
 		id: QueryValue | QueryValue[],
 	): CompiledQuery;
 
-	/**
-	 * For `QueryBuilder.delete()`. Must support everything compileSelect does.
-	 * Only needed if consumers use the builder's `.delete()`.
-	 */
+	/** For `QueryBuilder.delete()`; must support everything `compileSelect` does. */
 	compileDeleteQuery(query: QueryStructure): CompiledQuery;
 
-	/**
-	 * For `QueryBuilder.update()`. Unlike compileDeleteQuery it need not handle
-	 * joins, which SQLite's UPDATE does not support.
-	 */
+	/** For `QueryBuilder.update()`; joins need not be handled. */
 	compileUpdateQuery(
 		query: QueryStructure,
 		data: Record<string, QueryValue>,
@@ -70,9 +68,8 @@ export interface SqlDialect {
 	compileCount(query: QueryStructure): CompiledQuery;
 
 	/**
-	 * One aggregate over one column, returned as `aggregate`. Optional: a
-	 * dialect without it reports so when `sum`/`avg`/`min`/`max` is called.
-	 * Limit, offset and order do not apply, as they do not for `compileCount`.
+	 * One aggregate over one column, returned as `aggregate`; limit, offset and
+	 * order do not apply. Optional.
 	 */
 	compileAggregate?(
 		query: QueryStructure,

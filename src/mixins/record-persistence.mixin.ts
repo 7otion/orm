@@ -1,6 +1,8 @@
 /** save() / delete() for Model instances. */
 
 import { ORM } from '../orm';
+import { DELETE_EVENTS, INSERT_EVENTS, UPDATE_EVENTS } from '../events';
+import { keySignature, primaryKeyColumns } from '../internal';
 import type { Transaction } from '../transaction';
 import type { DatabaseRow, QueryValue } from '../types';
 
@@ -15,6 +17,13 @@ export class RecordPersistenceMixin extends ModelState {
 		return key in this._original
 			? this._original[key]
 			: this._attributes[key];
+	}
+
+	/** The stored key as one string, for the unit's delete ledger. */
+	private keySignature(): string {
+		return keySignature(
+			primaryKeyColumns(this.getConfig()).map(key => this.storedKey(key)),
+		);
 	}
 
 	async save(tx?: Transaction): Promise<this> {
@@ -51,9 +60,18 @@ export class RecordPersistenceMixin extends ModelState {
 
 	protected async insert(tx?: Transaction): Promise<this> {
 		const orm = ORM.getInstance();
+		const events = this.getEvents();
+		const models = [this];
 
-		return orm.queueWrite(
-			async () => {
+		return events.write(
+			INSERT_EVENTS,
+			async unit => {
+				// A plain write issues its statement with no await before it.
+				if (unit) {
+					await events.fire('saving', models, unit);
+					await events.fire('creating', models, unit);
+				}
+
 				const dialect = orm.getDialect();
 				const adapter = orm.getAdapter();
 				const config = this.getConfig();
@@ -64,6 +82,8 @@ export class RecordPersistenceMixin extends ModelState {
 					this._attributes[timestamps.columns.created_at] = now;
 					this._attributes[timestamps.columns.updated_at] = now;
 				}
+
+				const changes = events.captureFor(['created', 'saved'], models);
 
 				const compiled = dialect.compileInsert(
 					config.table!,
@@ -87,6 +107,11 @@ export class RecordPersistenceMixin extends ModelState {
 				this._exists = true;
 				this._original = this.getCaster().snapshot(this._attributes);
 
+				if (unit) {
+					await events.fire('created', models, unit, changes);
+					await events.fire('saved', models, unit, changes);
+				}
+
 				return this;
 			},
 			tx,
@@ -101,23 +126,30 @@ export class RecordPersistenceMixin extends ModelState {
 			);
 		}
 
-		const orm = ORM.getInstance();
+		// A clean model is not written and fires nothing.
+		if (this.getDirty().length === 0) return this;
 
-		const clearedRelationships = await orm.queueWrite(
-			async () => {
+		const orm = ORM.getInstance();
+		const events = this.getEvents();
+		const models = [this];
+
+		return events.write(
+			UPDATE_EVENTS,
+			async unit => {
+				if (unit) {
+					await events.fire('saving', models, unit);
+					await events.fire('updating', models, unit);
+				}
+
 				const dialect = orm.getDialect();
 				const adapter = orm.getAdapter();
 				const config = this.getConfig();
 				const timestamps = this.getTimestamps();
 
 				const dirtyFields = this.getDirty();
+				if (dirtyFields.length === 0) return this;
 
-				if (dirtyFields.length === 0) {
-					return [] as string[];
-				}
-
-				// Excluded even when dirty: only a direct `_attributes` write can
-				// have made one dirty, and that must not reach the database.
+				// A timestamp dirtied by a direct `_attributes` write must not reach the database.
 				const data: DatabaseRow = {};
 				for (const field of dirtyFields) {
 					if (timestamps.owns(field)) continue;
@@ -137,6 +169,8 @@ export class RecordPersistenceMixin extends ModelState {
 				} else {
 					id = this.storedKey(primaryKey);
 				}
+
+				const changes = events.captureFor(['updated', 'saved'], models);
 
 				const compiled = dialect.compileUpdate(
 					config.table!,
@@ -169,17 +203,19 @@ export class RecordPersistenceMixin extends ModelState {
 
 				this._original = this.getCaster().snapshot(this._attributes);
 
-				const cleared = this.clearAffectedRelationships(dirtyFields);
+				if (unit) {
+					await events.fire('updated', models, unit, changes);
+					await events.fire('saved', models, unit, changes);
+				}
 
-				return cleared;
+				const cleared = this.clearAffectedRelationships(dirtyFields);
+				await Promise.all(cleared.map(name => this.load(name)));
+
+				return this;
 			},
 			tx,
 			this.writeLabel('save'),
 		);
-
-		await Promise.all(clearedRelationships.map(name => this.load(name)));
-
-		return this;
 	}
 
 	async delete(tx?: Transaction): Promise<boolean> {
@@ -188,8 +224,23 @@ export class RecordPersistenceMixin extends ModelState {
 		}
 
 		const orm = ORM.getInstance();
-		return orm.queueWrite(
-			async () => {
+		const events = this.getEvents();
+		const models = [this];
+
+		return events.write(
+			DELETE_EVENTS,
+			async unit => {
+				// An outer delete in this unit already covers the row.
+				if (
+					unit &&
+					!unit.claimDelete(this.constructor, this.keySignature())
+				) {
+					this._exists = false;
+					return true;
+				}
+
+				if (unit) await events.fire('deleting', models, unit);
+
 				const dialect = orm.getDialect();
 				const adapter = orm.getAdapter();
 				const config = this.getConfig();
@@ -212,6 +263,8 @@ export class RecordPersistenceMixin extends ModelState {
 				await adapter.execute(compiled.sql, compiled.bindings);
 
 				this._exists = false;
+
+				if (unit) await events.fire('deleted', models, unit);
 
 				return true;
 			},

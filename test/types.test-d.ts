@@ -1,16 +1,6 @@
 /**
- * Type-level tests.
- *
- * Nothing here runs; it is checked by `bun run check`, and a regression shows
- * up as a compile error. A library whose selling point is type safety cannot
- * protect its types with runtime tests alone.
- *
- * Assertions are written as call expressions inside functions rather than with
- * `ReturnType<>`, so they resolve the same way real user code does.
- *
- * A `@ts-expect-error` is itself an assertion: if the call it guards stops
- * being an error, the compiler reports the directive as unused and this file
- * fails. Deleting one silently weakens the suite, so they are load-bearing.
+ * Type-level tests, checked by `bun run check`. Each `@ts-expect-error` is an
+ * assertion: an unused one fails the file.
  */
 
 import { Model } from '../src/model';
@@ -37,11 +27,7 @@ type Equal<X, Y> =
 		? true
 		: false;
 
-/**
- * Compile-time assertion. Erased entirely — `declare` emits nothing and the
- * call is never executed. Written as a call rather than an unused `type`
- * alias so the file passes `noUnusedLocals` like the rest of the codebase.
- */
+/** Compile-time assertion; `declare` emits nothing. */
 declare function expectType<_T extends true>(): void;
 
 /** Passage's declared relationship registry. */
@@ -55,14 +41,13 @@ export async function _staticSurfaceIsTyped() {
 	const created = await Passage.create({ ref: 'x' });
 	const rows = await Passage.query().get();
 
-	// A polymorphic `this` parameter binds T to the subclass, so these no
-	// longer erase to `any` — with no change at the call site.
+	// A polymorphic `this` parameter binds T to the subclass.
 	expectType<Equal<typeof found, Passage | null>>();
 	expectType<Equal<typeof everything, Passage[]>>();
 	expectType<Equal<typeof created, Passage>>();
 	expectType<Equal<typeof rows, Passage[]>>();
 
-	// Nullability is now surfaced rather than swallowed.
+	// Nullability is surfaced.
 	// @ts-expect-error - 'found' is possibly 'null'.
 	found.title;
 
@@ -71,8 +56,7 @@ export async function _staticSurfaceIsTyped() {
 	// @ts-expect-error - 'alsoNotAField' does not exist on Passage.
 	created.alsoNotAField;
 
-	// And traversing a relation keeps its type, so callbacks are contextually
-	// typed instead of raising an implicit-any error in strict consumers.
+	// Traversing a relation keeps its type.
 	const [first] = await Passage.query().with('lines').get();
 	first!.lines.map(l => l.ref);
 	// @ts-expect-error - 'nope' does not exist on Line.
@@ -96,7 +80,6 @@ export async function _staticsBindToTheCallingSubclass() {
 /* ── The full read surface, straight off the class ──────────────────────── */
 
 export async function _readSurfaceIsTyped() {
-	// Direct statics — no facade.
 	const repo = Passage;
 
 	const found = await repo.find('intro');
@@ -106,8 +89,7 @@ export async function _readSurfaceIsTyped() {
 	expectType<Equal<typeof everything, Passage[]>>();
 
 	const builder = repo.query();
-	// The builder now also carries the model's relation registry, so `with()`
-	// is checked here too.
+	// The builder carries the relation registry, so `with()` is checked.
 	expectType<
 		Equal<typeof builder, QueryBuilder<Passage, PassageRelations>>
 	>();
@@ -121,8 +103,6 @@ export async function _readSurfaceIsTyped() {
 	const page = await repo.query().paginate(1, 10);
 	expectType<Equal<typeof page, { data: Passage[]; total: number }>>();
 
-	// The statics carry full type information, so no repository indirection
-	// is needed to recover it.
 	everything.map(p => p.ref);
 	// @ts-expect-error - 'nope' does not exist on Passage.
 	everything.map(p => p.nope);
@@ -262,7 +242,7 @@ export function _havingIsCheckedLikeWhere() {
 export async function _ungroupedQueriesKeepEveryTerminal() {
 	const plain = Passage.query();
 
-	// The default instantiation is unchanged, so nothing existing breaks.
+	// The default instantiation is ungrouped.
 	expectType<Equal<typeof plain, QueryBuilder<Passage, PassageRelations>>>();
 	expectType<Equal<Awaited<ReturnType<typeof plain.get>>, Passage[]>>();
 
@@ -290,8 +270,7 @@ export function _queryIdentifiersAreChecked() {
 	q.orderBy('sort', 'desc');
 	q.select('ref', 'title');
 
-	// Splitting `where` into two overloads means the operator is a real union
-	// again, instead of being absorbed into `string`.
+	// The operator is a union, not `string`.
 	// @ts-expect-error - '>>>' is not a WhereOperator.
 	q.where('sort', '>>>', 1);
 
@@ -500,11 +479,11 @@ export async function _writeSurfacesAreTyped() {
 	const created = await Line.create({ ref: 'x' });
 	expectType<Equal<typeof created, Line>>();
 
-	// createMany reports a count, and checks its rows the way create does.
+	// createMany hands back the models, and checks its rows the way create does.
 	const written = await Line.createMany([
 		{ ref: 'intro/c', passage_ref: 'intro', kind: 'say' },
 	]);
-	expectType<Equal<typeof written, number>>();
+	expectType<Equal<typeof written, Line[]>>();
 
 	// @ts-expect-error - computed property, not a column.
 	await Line.createMany([{ summary: 'x' }]);
@@ -527,20 +506,15 @@ export async function _writeSurfacesAreTyped() {
 /* ── The relationship registry: names survive, related types do not ─────── */
 
 export function _relationshipRegistry() {
-	// Because models declare `static readonly relationships = { ... }` as a
-	// typed object literal, it SHADOWS the base class's
-	// `Record<string, any>` getter — so the relation names are already
-	// recoverable from the type system today.
+	// The literal shadows the base getter, so relation names are recoverable.
 	type PassageRelations = keyof typeof Passage.relationships;
 	expectType<Equal<PassageRelations, 'lines' | 'choices'>>();
 
-	// The related model type survives too: the relationship's second type
-	// parameter carries the related class, which nested `with()` paths walk
-	// into.
+	// The related class survives through the relationship's second type parameter.
 	type LinesRelation = (typeof Passage.relationships)['lines'];
 	expectType<Equal<LinesRelation, HasMany<Line, typeof Line>>>();
 
-	// Which means the loaded shape is recoverable from the registry alone.
+	// The loaded shape is recoverable from the registry.
 	expectType<Equal<ReturnType<LinesRelation['get']>, Promise<Line[]>>>();
 }
 
@@ -579,6 +553,25 @@ export function _relationshipRegistry() {
 
 	// @ts-expect-error a to-one relation has no set to write
 	passage.relation('group');
+}
+
+/* Listeners and hooks are typed to the class they are attached to. */
+{
+	const off = Line.on('saved', batch => {
+		expectType<Equal<typeof batch.models, Line[]>>();
+		const [line] = batch.models;
+		batch.changed(line!, 'text');
+		expectType<
+			Equal<ReturnType<typeof batch.previous<'sort'>>, number | undefined>
+		>();
+
+		// @ts-expect-error not a column
+		batch.changed(line!, 'summary');
+	});
+	expectType<Equal<typeof off, () => void>>();
+
+	// @ts-expect-error not an event
+	Line.on('savedd', () => {});
 }
 
 export type {};

@@ -1,10 +1,4 @@
-/**
- * Proxy behaviour: what a model looks like to plain JavaScript.
- *
- * Consumers spread models, sort them, render them and hand them to
- * `Object.assign` — all of which go through the instance Proxy. These are the
- * invariants that keep that working.
- */
+/** Proxy behaviour: what a model looks like to plain JavaScript. */
 
 import { describe, expect, test } from 'bun:test';
 
@@ -278,8 +272,7 @@ describe('methods and getters', () => {
 		await freshDatabase();
 		const line = await seedLine();
 
-		// A schema is allowed a column named `toString`; protecting Model's
-		// API should not make Object.prototype's members unwritable too.
+		// A column may be named `toString`; Object.prototype members stay writable.
 		(line as unknown as Record<string, unknown>)['toString'] =
 			'legacy column' as unknown as () => string;
 

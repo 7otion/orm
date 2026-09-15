@@ -1,10 +1,4 @@
-/**
- * MorphMany — children in a table shared by several owner types.
- *
- * The scenario throughout is the one a plain hasMany gets wrong: `conditions`
- * carries `owner_kind`/`owner_ref`, and two owners of different types share a
- * key value.
- */
+/** MorphMany: children in a table shared by several owner types, two of which share a key value. */
 
 import { describe, expect, test } from 'bun:test';
 

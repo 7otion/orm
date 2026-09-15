@@ -121,8 +121,7 @@ describe('custom statics', () => {
 			id!: number;
 			name!: string;
 
-			// `this.query()` inside a subclass static must bind to Widget, not
-			// to the abstract base — otherwise this would not compile.
+			// `this.query()` inside a subclass static binds to Widget.
 			static async named(name: string): Promise<Widget | null> {
 				return this.query().where('name', name).first();
 			}

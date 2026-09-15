@@ -1,17 +1,6 @@
 /**
- * Model fixtures.
- *
- * Realistic rather than minimal: mixes TEXT, UUID,
- * AUTOINCREMENT and composite keys, with a relation graph three levels deep.
- * That combination is what exercises key adoption, nested eager loading and
- * the partial-load guard.
- *
- * Written the way a consumer writes models, so a change that breaks this
- * file's declaration style is a breaking change, not just a test failure.
- *
- * Declaration order is dependency order: a class named in a `relationships`
- * initializer must exist already. The thunk fixtures at the bottom cover the
- * case where that is impossible.
+ * Model fixtures, declared the way a consumer declares models. Declaration
+ * order is dependency order.
  */
 
 import { Model } from '../../src/model';
@@ -438,10 +427,7 @@ export class Note extends Model<Note> {
 	};
 }
 
-/* ── Thunk fixtures ─────────────────────────────────────────────────────────
- * Mutually-referential models — the case that forces `() => Model` thunks,
- * since neither class exists when the other's initializer runs.
- */
+/* ── Thunk fixtures: mutually-referential models ───────────────────────── */
 
 export class ThunkPassage extends Model<ThunkPassage> {
 	static config = {

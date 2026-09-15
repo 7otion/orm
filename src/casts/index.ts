@@ -54,10 +54,7 @@ export class Caster {
 		return cast.toDatabase(value, column);
 	}
 
-	/**
-	 * A snapshot for `_original`. Object values are cloned, so an in-place edit
-	 * of the live attribute does not also mutate what it is compared against.
-	 */
+	/** A snapshot for `_original`; object values are cloned. */
 	snapshot(attributes: DatabaseRow): DatabaseRow {
 		const out: DatabaseRow = { ...attributes };
 		for (const [column, cast] of Object.entries(this.casts)) {
@@ -71,10 +68,7 @@ export class Caster {
 		return out;
 	}
 
-	/**
-	 * Whether a column changed. Object values compare by value, since
-	 * `snapshot` gave them a separate instance.
-	 */
+	/** Whether a column changed; object values compare by value. */
 	changed(column: string, current: unknown, original: unknown): boolean {
 		const cast = this.casts[column];
 		if (!cast || current === null || typeof current !== 'object') {

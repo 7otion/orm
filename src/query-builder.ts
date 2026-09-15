@@ -12,13 +12,18 @@ import type {
 } from './types';
 import type { Model, ModelStatic } from './model';
 import { ORM } from './orm';
+import { BulkWriter } from './bulk-writer';
+import { DELETE_EVENTS, UPDATE_EVENTS } from './events';
 import type { Transaction } from './transaction';
 import {
 	assertIdentifier,
 	assertOperator,
 	findRelationship,
+	getAttribute,
 	getRelation,
+	keySignature,
 	omitUndefined,
+	primaryKeyColumns,
 } from './internal';
 import type { AnyRelations, RelationPath } from './relation-paths';
 import type {
@@ -59,12 +64,8 @@ export class QueryBuilder<
 	}
 
 	/**
-	 * `where(col, value)` or `where(col, operator, value)`.
-	 *
-	 * Split into two overloads rather than one `WhereOperator | QueryValue`
-	 * parameter: that union absorbs into `string`, which lets any nonsense
-	 * operator through. Separating them also lets the two-argument form check
-	 * the value against the column's declared type.
+	 * `where(col, value)` or `where(col, operator, value)`. Two overloads, so the
+	 * operator stays a union rather than absorbing into `string`.
 	 */
 	where<K extends ColumnRef<T>>(column: K, value: ValueFor<T, K>): this;
 	where<K extends ColumnRef<T>, Op extends WhereOperator>(
@@ -74,8 +75,7 @@ export class QueryBuilder<
 	): this;
 	/** A callback nests its conditions in one parenthesised group. */
 	where(group: (query: QueryBuilder<T, TRelations>) => void): this;
-	// Implementation signature: not callable from outside, so it stays wide
-	// enough to cover every overload.
+	// Implementation signature; not callable from outside.
 	where(
 		columnOrGroup: string | ((query: QueryBuilder<T, TRelations>) => void),
 		operatorOrValue?: unknown,
@@ -238,9 +238,8 @@ export class QueryBuilder<
 	}
 
 	/**
-	 * Caller values reach the driver in the column's stored shape, as writes do.
-	 * A qualified name belongs to another table, whose casts are not this
-	 * model's to apply.
+	 * Values reach the driver in the column's stored shape. A qualified name
+	 * belongs to another table, whose casts do not apply.
 	 */
 	private stored(column: string, value: WhereValue): WhereValue {
 		if (column.includes('.')) return value;
@@ -503,11 +502,7 @@ export class QueryBuilder<
 		return rows as R[];
 	}
 
-	/**
-	 * Eager load relations, including nested dotted paths. Names are checked
-	 * against the model's `relationships` literal; models without one accept
-	 * any string.
-	 */
+	/** Eager loads relations, including dotted paths, checked against the `relationships` literal. */
 	with(
 		this: QueryBuilder<T, TRelations, false>,
 		...relations: RelationPath<TRelations>[]
@@ -534,10 +529,7 @@ export class QueryBuilder<
 		);
 	}
 
-	/**
-	 * An independent copy, for branching one base query into several. Chained
-	 * methods mutate the builder they are called on, as they do everywhere else.
-	 */
+	/** An independent copy, for branching one base query into several. */
 	clone(): QueryBuilder<T, TRelations, Grouped> {
 		const copy = new QueryBuilder<T, TRelations, Grouped>(
 			this.modelClass,
@@ -762,6 +754,41 @@ export class QueryBuilder<
 		this.applyRelationshipConstraint();
 
 		const orm = ORM.getInstance();
+		const events = this.modelClass.events;
+		const label = `${this.modelClass.name}.query().delete()`;
+
+		if (events.has(DELETE_EVENTS)) {
+			return orm.queueUnit(
+				async unit => {
+					await events.prepare(DELETE_EVENTS, unit, label);
+
+					// Selected inside the unit; rows an outer delete already claimed are its.
+					const selected = await this.clone().get();
+					const models = selected.filter(model =>
+						unit.claimDelete(this.modelClass, this.keyOf(model)),
+					);
+					if (models.length === 0) return 0;
+
+					await events.fire('deleting', models, unit);
+
+					const compiled = orm
+						.getDialect()
+						.compileDeleteQuery(this.query);
+					const affected = await orm
+						.getAdapter()
+						.execute(compiled.sql, compiled.bindings);
+
+					for (const model of selected) model._exists = false;
+
+					await events.fire('deleted', models, unit);
+
+					return affected;
+				},
+				tx,
+				label,
+			);
+		}
+
 		return orm.queueWrite(
 			async () => {
 				const dialect = orm.getDialect();
@@ -777,7 +804,15 @@ export class QueryBuilder<
 				return affected;
 			},
 			tx,
-			`${this.modelClass.name}.query().delete()`,
+			label,
+		);
+	}
+
+	private keyOf(model: T): string {
+		return keySignature(
+			primaryKeyColumns(this.modelClass.config).map(column =>
+				getAttribute(model, column),
+			),
 		);
 	}
 
@@ -792,6 +827,40 @@ export class QueryBuilder<
 		this.applyRelationshipConstraint();
 
 		const orm = ORM.getInstance();
+		const events = this.modelClass.events;
+		const label = `${this.modelClass.name}.query().update()`;
+
+		if (events.has(UPDATE_EVENTS)) {
+			return orm.queueUnit(
+				async unit => {
+					// Selected inside the unit. Written through the bulk writer, so a
+					// hook's per-model change lands in the same statement.
+					const models = await this.clone().get();
+					const patch = this.modelClass.timestamps.strip(
+						omitUndefined(data as Record<string, QueryValue>),
+					);
+
+					for (const model of models as unknown as Record<
+						string,
+						unknown
+					>[]) {
+						for (const [column, value] of Object.entries(patch)) {
+							model[column] = value;
+						}
+					}
+
+					const written = models.filter(
+						model => model.isDirty,
+					).length;
+					await new BulkWriter(this.modelClass).update(models, unit);
+
+					return written;
+				},
+				tx,
+				label,
+			);
+		}
+
 		return orm.queueWrite(
 			async () => {
 				const dialect = orm.getDialect();
@@ -820,7 +889,7 @@ export class QueryBuilder<
 				return affected;
 			},
 			tx,
-			`${this.modelClass.name}.query().update()`,
+			label,
 		);
 	}
 

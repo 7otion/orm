@@ -22,13 +22,7 @@ export interface MorphManyConfig {
 	localKey?: string;
 }
 
-/**
- * The inverse of MorphTo.
- *
- * A plain `hasMany` against a shared child table matches on the foreign key
- * alone, so two owners of different types that happen to share a key value
- * collect each other's rows. This filters on the discriminator as well.
- */
+/** The inverse of MorphTo; filters on the discriminator as well as the foreign key. */
 export class MorphMany<
 	T extends Model<T>,
 	TClass = unknown,

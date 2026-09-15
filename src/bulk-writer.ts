@@ -2,11 +2,20 @@
 
 import { ORM } from './orm';
 import { QueryBuilder } from './query-builder';
-import { KEY_SEPARATOR, dynamicWhere } from './internal';
+import { INSERT_EVENTS, UPDATE_EVENTS } from './events';
+import {
+	KEY_SEPARATOR,
+	dynamicWhere,
+	keySignature,
+	primaryKeyColumns,
+} from './internal';
 import type { Transaction } from './transaction';
 import type { DatabaseRow } from './types';
 import type { Patch } from './columns';
 import type { Model, ModelStatic } from './model';
+
+/** Models sharing one statement, with their rows in the same order. */
+type Chunk<T> = { models: T[]; rows: DatabaseRow[] };
 
 type PendingUpdate<T> = { model: T; row: DatabaseRow };
 
@@ -21,32 +30,41 @@ type UpdatePlan<T> = {
 export class BulkWriter<T extends Model<T>> {
 	constructor(private readonly modelClass: ModelStatic<T>) {}
 
-	async insert(rows: Patch<T>[], tx?: Transaction): Promise<number> {
-		const chunks = this.insertChunks(rows);
-		if (chunks.length === 0) return 0;
+	async insert(rows: Patch<T>[], tx?: Transaction): Promise<T[]> {
+		if (rows.length === 0) return [];
+
+		const models = rows.map(data => this.build(data));
 
 		const orm = ORM.getInstance();
+		const events = this.modelClass.events;
 		const label = `${this.modelClass.name}.createMany()`;
 
 		return orm.queueUnit(
 			async unit => {
+				await events.prepare(INSERT_EVENTS, unit, label);
+				await events.fire('saving', models, unit);
+				await events.fire('creating', models, unit);
+
+				// Chunked after the hooks, which may have changed a row's shape.
+				const chunks = this.insertChunks(models);
 				await orm.ensureAtomic(unit, chunks.length, label);
 
-				const dialect = orm.getDialect();
-				const adapter = orm.getAdapter();
-				const table = this.modelClass.getTableName();
-
-				let written = 0;
+				const changes = events.captureFor(['created', 'saved'], models);
 
 				for (const chunk of chunks) {
-					const compiled = dialect.compileInsertMany(table, chunk);
-					written += await adapter.execute(
-						compiled.sql,
-						compiled.bindings,
-					);
+					await this.insertChunk(chunk);
 				}
 
-				return written;
+				const caster = this.modelClass.casts;
+				for (const model of models) {
+					model._exists = true;
+					model._original = caster.snapshot(model._attributes);
+				}
+
+				await events.fire('created', models, unit, changes);
+				await events.fire('saved', models, unit, changes);
+
+				return models;
 			},
 			tx,
 			label,
@@ -55,23 +73,40 @@ export class BulkWriter<T extends Model<T>> {
 
 	/** How many statements `insert` issues for these rows. */
 	insertStatementCount(rows: Patch<T>[]): number {
-		return this.insertChunks(rows).length;
+		return this.insertChunks(rows.map(data => this.build(data))).length;
 	}
 
 	async update(models: T[], tx?: Transaction): Promise<T[]> {
-		const plan = this.planUpdate(models);
-		if (!plan) return models;
-
-		const { pending, keyColumns, set, now, chunks } = plan;
-		const timestamps = this.modelClass.timestamps;
-		const caster = this.modelClass.casts;
+		const pending = models.filter(
+			model => this.pendingColumns(model).length > 0,
+		);
+		if (pending.length === 0) return models;
 
 		const orm = ORM.getInstance();
+		const events = this.modelClass.events;
+		const timestamps = this.modelClass.timestamps;
+		const caster = this.modelClass.casts;
 		const label = `${this.modelClass.name}.updateMany()`;
 
-		const written = await orm.queueUnit(
+		const missing = await orm.queueUnit(
 			async unit => {
+				await events.prepare(UPDATE_EVENTS, unit, label);
+				await events.fire('saving', pending, unit);
+				await events.fire('updating', pending, unit);
+
+				// Planned after the hooks, which may have changed what is pending.
+				const plan = this.planUpdate(models);
+				if (!plan) return new Set<T>();
+
+				const { keyColumns, set, now, chunks } = plan;
+				const written = plan.pending;
+
 				await orm.ensureAtomic(unit, chunks.length, label);
+
+				const changes = events.captureFor(
+					['updated', 'saved'],
+					written.map(({ model }) => model),
+				);
 
 				const dialect = orm.getDialect();
 				const adapter = orm.getAdapter();
@@ -92,31 +127,38 @@ export class BulkWriter<T extends Model<T>> {
 					);
 				}
 
-				return affected;
+				// Only rows that vanished are unaccounted for.
+				const missing =
+					affected < written.length
+						? await this.findMissing(written)
+						: new Set<T>();
+
+				for (const { model } of written) {
+					if (missing.has(model)) {
+						model._exists = false;
+						continue;
+					}
+					if (now && timestamps.columns) {
+						model._attributes[timestamps.columns.updated_at] = now;
+					}
+					model._original = caster.snapshot(model._attributes);
+				}
+
+				const landed = written
+					.map(({ model }) => model)
+					.filter(model => !missing.has(model));
+
+				await events.fire('updated', landed, unit, changes);
+				await events.fire('saved', landed, unit, changes);
+
+				return missing;
 			},
 			tx,
 			label,
 		);
 
-		// The write has landed by here, so every row that still existed now
-		// holds its new values. Only the ones that vanished are unaccounted for.
-		const missing =
-			written < pending.length
-				? await this.findMissing(pending)
-				: new Set<T>();
-
-		for (const { model } of pending) {
-			if (missing.has(model)) {
-				model._exists = false;
-				continue;
-			}
-			if (now && timestamps.columns) {
-				model._attributes[timestamps.columns.updated_at] = now;
-			}
-			model._original = caster.snapshot(model._attributes);
-		}
-
 		if (missing.size > 0) {
+			const keyColumns = this.keyColumns();
 			const keys = [...missing]
 				.map(model =>
 					keyColumns
@@ -139,35 +181,110 @@ export class BulkWriter<T extends Model<T>> {
 		return this.planUpdate(models)?.chunks.length ?? 0;
 	}
 
-	/** Rows grouped by the columns they set, then split at the dialect's parameter limit. */
-	private insertChunks(rows: Patch<T>[]): DatabaseRow[][] {
-		if (rows.length === 0) return [];
+	/** One statement; generated keys come back through RETURNING and are matched by rowid. */
+	private async insertChunk({ models, rows }: Chunk<T>): Promise<void> {
+		const orm = ORM.getInstance();
+		const dialect = orm.getDialect();
+		const adapter = orm.getAdapter();
+		const table = this.modelClass.getTableName();
 
-		const shapes = BulkWriter.byShape(rows.map(data => this.toRow(data)));
+		const generated = this.generatedKey(rows[0]!);
 
-		for (const shape of shapes.values()) {
-			if (Object.keys(shape[0]!).length > 0) continue;
+		if (!generated) {
+			const compiled = dialect.compileInsertMany(table, rows);
+			await adapter.execute(compiled.sql, compiled.bindings);
+			return;
+		}
+
+		const compiled = dialect.compileInsertMany(table, rows, [generated]);
+
+		let returned: DatabaseRow[];
+		try {
+			returned = await adapter.query(compiled.sql, compiled.bindings);
+		} catch (error) {
+			const message =
+				error instanceof Error ? error.message : String(error);
+			if (/rowid/i.test(message)) {
+				throw new Error(
+					`[orm] ${table} has no rowid, so createMany cannot match generated ` +
+						`${generated} values back to its rows. Supply ${generated} in each row.`,
+				);
+			}
+			throw error;
+		}
+
+		if (returned.length !== models.length) {
 			throw new Error(
-				`[orm] createMany received ${shape.length} ${this.modelClass.name} row(s) with no columns to write. ` +
-					`fill() drops undefined values, so a row whose columns are all undefined arrives empty.`,
+				`[orm] Inserting ${models.length} ${table} rows returned ${returned.length} keys.`,
 			);
 		}
 
+		// Within one statement rowids ascend in insertion order; RETURNING
+		// itself promises no order.
+		const ordered = [...returned].sort(
+			(a, b) => Number(a.rowid) - Number(b.rowid),
+		);
+		ordered.forEach((row, index) => {
+			models[index]!._attributes[generated] = row[generated];
+		});
+	}
+
+	/** The single key column a row leaves to the database, if any. Composite keys are always supplied. */
+	private generatedKey(row: DatabaseRow): string | null {
+		const key = this.modelClass.config.primaryKey ?? 'id';
+		if (Array.isArray(key)) return null;
+		return row[key] === undefined || row[key] === null ? key : null;
+	}
+
+	/** Models grouped by the columns they set, then split at the dialect's parameter limit. */
+	private insertChunks(models: T[]): Chunk<T>[] {
+		const caster = this.modelClass.casts;
+		const shapes = new Map<string, Chunk<T>>();
+
+		for (const model of models) {
+			const row = caster.toDatabaseValues(model._attributes);
+			const columns = Object.keys(row);
+
+			if (columns.length === 0) {
+				throw new Error(
+					`[orm] createMany received a ${this.modelClass.name} row with no columns to write. ` +
+						`fill() drops undefined values, so a row whose columns are all undefined arrives empty.`,
+				);
+			}
+
+			const signature = columns.sort().join(KEY_SEPARATOR);
+			const shape = shapes.get(signature);
+			if (shape) {
+				shape.models.push(model);
+				shape.rows.push(row);
+			} else {
+				shapes.set(signature, { models: [model], rows: [row] });
+			}
+		}
+
 		const limit = ORM.getInstance().getDialect().maxBindParameters;
-		const chunks: DatabaseRow[][] = [];
+		const chunks: Chunk<T>[] = [];
 
 		for (const shape of shapes.values()) {
-			const columnCount = Object.keys(shape[0]!).length;
+			const columnCount = Object.keys(shape.rows[0]!).length;
 			const perStatement = limit
 				? Math.max(1, Math.floor(limit / Math.max(columnCount, 1)))
-				: shape.length;
+				: shape.rows.length;
 
-			for (let i = 0; i < shape.length; i += perStatement) {
-				chunks.push(shape.slice(i, i + perStatement));
+			for (let i = 0; i < shape.rows.length; i += perStatement) {
+				chunks.push({
+					models: shape.models.slice(i, i + perStatement),
+					rows: shape.rows.slice(i, i + perStatement),
+				});
 			}
 		}
 
 		return chunks;
+	}
+
+	private pendingColumns(model: T): string[] {
+		const timestamps = this.modelClass.timestamps;
+		return model.getDirty().filter(column => !timestamps.owns(column));
 	}
 
 	/** `null` when no model has anything pending. */
@@ -182,9 +299,7 @@ export class BulkWriter<T extends Model<T>> {
 		const pending: PendingUpdate<T>[] = [];
 
 		for (const model of models) {
-			const dirty = model
-				.getDirty()
-				.filter(column => !timestamps.owns(column));
+			const dirty = this.pendingColumns(model);
 			if (dirty.length === 0) continue;
 
 			const reassigned = dirty.find(column =>
@@ -198,12 +313,7 @@ export class BulkWriter<T extends Model<T>> {
 
 			// Located by the ORIGINAL key, as a single update is.
 			const row: DatabaseRow = {};
-			for (const key of keyColumns) {
-				row[key] =
-					key in model._original
-						? model._original[key]
-						: model._attributes[key];
-			}
+			for (const key of keyColumns) row[key] = this.keyOf(model, key);
 			for (const column of dirty) row[column] = model._attributes[column];
 
 			pending.push({ model, row: caster.toDatabaseValues(row) });
@@ -278,24 +388,15 @@ export class BulkWriter<T extends Model<T>> {
 			});
 		}
 
-		const signature = (values: unknown[]): string =>
-			values
-				.map(value =>
-					value instanceof Date
-						? String(value.getTime())
-						: String(value),
-				)
-				.join(KEY_SEPARATOR);
-
 		const present = new Set(
 			(await query.get()).map(row =>
-				signature(keyColumns.map(column => this.keyOf(row, column))),
+				keySignature(keyColumns.map(column => this.keyOf(row, column))),
 			),
 		);
 
 		const missing = new Set<T>();
 		for (const { model } of pending) {
-			const key = signature(
+			const key = keySignature(
 				keyColumns.map(column => this.keyOf(model, column)),
 			);
 			if (!present.has(key)) missing.add(model);
@@ -305,11 +406,11 @@ export class BulkWriter<T extends Model<T>> {
 	}
 
 	private keyColumns(): string[] {
-		const key = this.modelClass.config.primaryKey ?? 'id';
-		return Array.isArray(key) ? key : [key];
+		return primaryKeyColumns(this.modelClass.config);
 	}
 
-	private toRow(data: Patch<T>): DatabaseRow {
+	/** A model filled and stamped as `create()` would, not yet written. */
+	private build(data: Patch<T>): T {
 		const model = new this.modelClass();
 		model.fill(data);
 
@@ -320,20 +421,6 @@ export class BulkWriter<T extends Model<T>> {
 			model._attributes[timestamps.columns.updated_at] = now;
 		}
 
-		return this.modelClass.casts.toDatabaseValues(model._attributes);
-	}
-
-	/** One statement per shape, so a row omitting a column keeps its default. */
-	private static byShape(rows: DatabaseRow[]): Map<string, DatabaseRow[]> {
-		const shapes = new Map<string, DatabaseRow[]>();
-
-		for (const row of rows) {
-			const signature = Object.keys(row).sort().join(KEY_SEPARATOR);
-			const shape = shapes.get(signature);
-			if (shape) shape.push(row);
-			else shapes.set(signature, [row]);
-		}
-
-		return shapes;
+		return model;
 	}
 }

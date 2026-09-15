@@ -1,11 +1,4 @@
-/**
- * Multi-step scenarios.
- *
- * The other suites each test one capability in isolation. These exercise
- * sequences — load, mutate, write back, reload — because that is where dirty
- * tracking, the attribute proxy, relation caching and the write path interact,
- * and where several real regressions have surfaced.
- */
+/** Multi-step scenarios: load, mutate, write back, reload. */
 
 import { describe, expect, test } from 'bun:test';
 
@@ -553,9 +546,7 @@ describe('relations and foreign keys', () => {
 		asset.ref = 'new-ref';
 		await asset.save();
 
-		// The WHERE clause must bind the ORIGINAL key. Binding the new one
-		// produced `SET ref = 'new-ref' WHERE ref = 'new-ref'`, matching no
-		// row and silently losing the write.
+		// The WHERE clause binds the ORIGINAL key; the new one matches no row.
 		const update = adapter.log.find(e => e.sql.startsWith('UPDATE'))!;
 		expect(update.params.at(-1)).toBe('old-ref');
 

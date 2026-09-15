@@ -61,8 +61,7 @@ export class TauriAdapter implements DatabaseAdapter {
 
 		this.db = await tauriSqlModule.default.load(this.config.database);
 
-		// Stored in the database file, so one pooled connection is enough. A
-		// per-connection PRAGMA would reach only the connection that ran it.
+		// journal_mode is stored in the file, so one pooled connection is enough.
 		await this.db.execute('PRAGMA journal_mode = WAL;');
 	}
 

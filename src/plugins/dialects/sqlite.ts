@@ -34,11 +34,8 @@ export class SQLiteDialect implements SqlDialect {
 	}
 
 	/**
-	 * SQLite has no boolean type, and a driver handed a raw `true` will not
-	 * necessarily store 0/1 — tauri-plugin-sql, for one, binds it as the JSON
-	 * text `"true"`, which no `= 1` comparison ever matches. The last step
-	 * before the driver, so it also covers raw bindings, which carry no column
-	 * name for a cast to key off.
+	 * Booleans become 0/1: tauri-plugin-sql binds a raw `true` as the text `"true"`.
+	 * The last step before the driver, so raw bindings are covered too.
 	 */
 	private compiled(sql: string, bindings: QueryValue[]): CompiledQuery {
 		return {
@@ -132,9 +129,8 @@ export class SQLiteDialect implements SqlDialect {
 	}
 
 	/**
-	 * UPDATE and DELETE take no join, limit or offset of their own, so anything
-	 * beyond a plain WHERE is expressed as the set of rows a SELECT would match.
-	 * Rowid tables only; a WITHOUT ROWID table has no such column.
+	 * UPDATE and DELETE take no join, limit or offset, so those are expressed as
+	 * the rows a SELECT matches. Rowid tables only.
 	 */
 	private rowidFilter(query: QueryStructure, bindings: QueryValue[]): string {
 		const table = this.escapeIdentifier(query.table);
@@ -180,6 +176,7 @@ export class SQLiteDialect implements SqlDialect {
 	compileInsertMany(
 		table: string,
 		rows: Record<string, QueryValue>[],
+		returning?: string[],
 	): CompiledQuery {
 		const columns = Object.keys(rows[0] ?? {});
 		const columnList = columns
@@ -191,7 +188,15 @@ export class SQLiteDialect implements SqlDialect {
 
 		const bindings = rows.flatMap(row => columns.map(col => row[col]!));
 
-		const sql = `INSERT INTO ${this.escapeIdentifier(table)} (${columnList}) VALUES ${tuples}`;
+		let sql = `INSERT INTO ${this.escapeIdentifier(table)} (${columnList}) VALUES ${tuples}`;
+
+		if (returning && returning.length > 0) {
+			// rowid is what orders the returned rows; RETURNING promises no order.
+			const returned = returning
+				.map(column => this.escapeIdentifier(column))
+				.join(', ');
+			sql += ` RETURNING rowid, ${returned}`;
+		}
 
 		return this.compiled(sql, bindings);
 	}

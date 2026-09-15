@@ -1,11 +1,4 @@
-/**
- * Runtime behaviour of the column model that `ColumnKeys`/`Patch` describe.
- *
- * The type-level half lives in `types.test-d.ts`. These cover what survives
- * type erasure: what `fill` does when the data did not come from typed code —
- * `JSON.parse`, a plain-JS consumer, a cast — which is the only way to reach
- * these paths now.
- */
+/** Runtime behaviour of the column model; the type-level half lives in `types.test-d.ts`. */
 
 import { describe, expect, test } from 'bun:test';
 
@@ -101,9 +94,7 @@ describe('fill() and non-columns', () => {
 		);
 		line.fill(untrusted('{"bogus_column": "zzz"}'));
 
-		// Nothing in the ORM knows the table's real columns, so this is the
-		// database's job — which is why `fillable` still exists for untrusted
-		// input even though the type layer covers typed callers.
+		// The database rejects it; the ORM does not know the table's columns.
 		await expect(line.save()).rejects.toThrow(/bogus_column/);
 	});
 
@@ -164,12 +155,7 @@ describe('fill() and non-columns', () => {
 	});
 });
 
-/**
- * A column has two states, present and NULL. `undefined` is neither, so it can
- * only mean "not supplied" — which matters because TypeScript cannot tell
- * `{ x: undefined }` from `{}` without `exactOptionalPropertyTypes`, so a patch
- * assembled conditionally has no other way to say it.
- */
+/** `undefined` means "not supplied"; `null` means NULL. */
 describe('undefined means "not supplied", null means NULL', () => {
 	test('fill() skips an undefined value', async () => {
 		await freshDatabase();
@@ -336,9 +322,7 @@ describe('the write guard and the proxy agree', () => {
 
 		const line: any = new Line();
 
-		// `fill` reports through assertWritableColumn; a direct assignment goes
-		// through the proxy's set trap. Both call findDeclaration, so a getter
-		// is refused on both paths.
+		// `fill` and direct assignment both resolve through findDeclaration.
 		expect(() => line.fill(untrusted('{"summary": "x"}'))).toThrow(
 			/computed property/,
 		);
@@ -352,9 +336,7 @@ describe('the write guard and the proxy agree', () => {
 		expect(() => l2.fill(untrusted('{"toString": "col"}'))).not.toThrow();
 		expect(l2._attributes.toString).toBe('col');
 
-		// Reading it back is separate: the *get* trap walks the full chain on
-		// purpose, so `Object.prototype.toString` still wins. The write guard
-		// and the set trap agree; the get trap is asymmetric by design.
+		// The get trap walks the full chain, so `Object.prototype.toString` wins on read.
 		expect(typeof l2.toString).toBe('function');
 	});
 });

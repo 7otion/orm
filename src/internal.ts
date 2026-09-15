@@ -1,9 +1,6 @@
-import type { QueryValue } from './types';
+import type { ModelConfig, QueryValue } from './types';
 
-/**
- * Shared helpers. Separate module so the mixins can use them without importing
- * `model.ts`, which imports the mixins itself.
- */
+/** Shared helpers; imports nothing from `model.ts`, which imports the mixins. */
 
 /** Joins several values into one key; no column value can contain it. */
 export const KEY_SEPARATOR = '\u0000';
@@ -12,12 +9,7 @@ export const KEY_SEPARATOR = '\u0000';
 const IDENTIFIER =
 	/^(?:[A-Za-z_][A-Za-z0-9_$]*|\*)(?:\.(?:[A-Za-z_][A-Za-z0-9_$]*|\*))*$/;
 
-/**
- * Identifiers are interpolated into SQL, not bound, so anything that is not a
- * plain name is rejected rather than escaped — an escaped expression would
- * only fail later as an unknown column. Expressions belong in the `*Raw`
- * methods, where the caller is explicitly taking responsibility.
- */
+/** Identifiers are interpolated, not bound, so anything but a plain name is rejected. */
 export function assertIdentifier(value: string, kind: string): string {
 	if (!IDENTIFIER.test(value)) {
 		throw new Error(
@@ -72,37 +64,22 @@ export function assertOperator(value: string, kind: string): string {
 	return normalized;
 }
 
-/**
- * A query builder with the column check dropped.
- *
- * Structural, so this module still imports nothing from `query-builder.ts`,
- * which imports this one.
- */
+/** A query builder with the column check dropped; structural, so nothing is imported. */
 interface DynamicQuery<Q> {
 	where(column: string, operatorOrValue: unknown, value?: unknown): Q;
 }
 
 /**
- * The one place the column check is deliberately dropped.
- *
- * Relationships filter on names taken from their own configuration — foreign
- * keys, local keys, discriminators — which are `string` at the type level and
- * so cannot be checked against `ColumnKeys`. Confining the cast here keeps
- * `where` the single, fully typed entry point on the public surface: a
- * `@internal`-tagged public method would still be callable by anyone, which
- * would reopen exactly the hole the typing closes.
- *
- * The name is still identifier-validated at runtime by `where` itself.
+ * Relationships filter on configured key names, which are `string` and cannot
+ * meet `ColumnKeys`. The name is still identifier-checked at runtime.
  */
 export function dynamicWhere<Q>(query: Q): DynamicQuery<Q> {
 	return query as DynamicQuery<Q>;
 }
 
 /**
- * The declaration a write to `prop` would hit, from anywhere on the prototype
- * chain below `Object.prototype`. The proxy's `get` walks further, so a column
- * named after an `Object.prototype` member is writable but reads back as the
- * built-in.
+ * The declaration a write to `prop` would hit, stopping short of
+ * `Object.prototype`, which the proxy's `get` does walk.
  */
 export function findDeclaration(
 	target: object,
@@ -117,13 +94,7 @@ export function findDeclaration(
 	return undefined;
 }
 
-/**
- * Rejects a write the proxy would refuse anyway, but with a message that names
- * the model, the property and the reason.
- *
- * Only reachable from untyped data: `fill`'s parameter type already excludes
- * computed properties and methods.
- */
+/** Rejects a write the proxy would refuse, with a message naming the model and property. */
 export function assertWritableColumn(model: object, prop: string): void {
 	const descriptor = findDeclaration(model, prop);
 	if (!descriptor || descriptor.set) return;
@@ -146,10 +117,7 @@ export function assertWritableColumn(model: object, prop: string): void {
 	}
 }
 
-/**
- * Own keys only. `relationships[name]` resolves inherited Object.prototype
- * members, which would mistake `toString` for a relation.
- */
+/** Own keys only, so `toString` is not a relation. */
 export function findRelationship(
 	relationships: Record<string, any> | undefined | null,
 	name: string,
@@ -161,8 +129,7 @@ export function findRelationship(
 }
 
 /* Loaded relations live at `_<name>`, in-flight promises at `_loading_<name>`;
- * the Model proxy passes `_`-prefixed keys through untouched. Reaching them
- * needs a cast, so it happens here once instead of at every call site. */
+ * the Model proxy passes `_`-prefixed keys through untouched. */
 
 type RelationHost = Record<string, unknown>;
 
@@ -202,9 +169,7 @@ export function getAttribute(model: object, column: string): QueryValue {
 	return host(model)[column] as QueryValue;
 }
 
-/**
- * Drops keys whose value is `undefined`.
- */
+/** Drops keys whose value is `undefined`. */
 export function omitUndefined<T extends Record<string, unknown>>(data: T): T {
 	const out: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(data)) {
@@ -212,4 +177,19 @@ export function omitUndefined<T extends Record<string, unknown>>(data: T): T {
 		out[key] = value;
 	}
 	return out as T;
+}
+
+/** The key columns a config declares, always as a list. */
+export function primaryKeyColumns(config: ModelConfig): string[] {
+	const key = config.primaryKey ?? 'id';
+	return Array.isArray(key) ? key : [key];
+}
+
+/** One string for a row's key values. Dates by time, so two instances agree. */
+export function keySignature(values: unknown[]): string {
+	return values
+		.map(value =>
+			value instanceof Date ? String(value.getTime()) : String(value),
+		)
+		.join(KEY_SEPARATOR);
 }

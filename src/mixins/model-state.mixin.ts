@@ -1,13 +1,11 @@
 /**
- * Declaration base giving every mixin a typed `this`. Emits no runtime code.
- *
- * Must be one shared base: two independent declarations of a member do not
- * merge into `Model`'s interface. Only members crossing a mixin boundary
- * belong here.
+ * Declaration base giving every mixin a typed `this`; emits no runtime code.
+ * Only members crossing a mixin boundary belong here.
  */
 
 import type { ModelConfig } from '../types';
 import type { Caster } from '../casts';
+import type { ModelEvents } from '../events';
 import type { Timestamps } from '../timestamps';
 
 export class ModelState {
@@ -29,10 +27,7 @@ export class ModelState {
 	declare _loadedPaths?: Set<string>;
 }
 
-/**
- * Declared as an interface so they merge as methods: a subclass may override a
- * method, but not redeclare a property as one.
- */
+/** An interface, so a subclass may override these as methods. */
 export interface ModelState {
 	/** @internal Provided by Model. */
 	getConfig(): ModelConfig;
@@ -43,8 +38,14 @@ export interface ModelState {
 	/** @internal Provided by Model. */
 	getCaster(): Caster;
 
+	/** @internal Provided by Model. */
+	getEvents(): ModelEvents<any>;
+
 	/** Provided by ChangeStateMixin. */
 	getDirty(): string[];
+
+	/** Provided by ChangeStateMixin. */
+	getChanges(): Record<string, { old: any; new: any }>;
 
 	/** Provided by RelationshipLoaderMixin. */
 	load(relationshipName: string): Promise<void>;

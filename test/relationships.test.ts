@@ -1,10 +1,4 @@
-/**
- * Relationship loading — eager, lazy, nested, and the partial-load guard.
- *
- * The multi-level `with()` calls here are the heaviest relation graphs the
- * ORM is asked to build: three levels deep, with a parent path and its nested
- * paths requested together.
- */
+/** Relationship loading: eager, lazy, nested, and the partial-load guard. */
 
 import { describe, expect, test } from 'bun:test';
 
@@ -460,8 +454,7 @@ describe('nested eager loading', () => {
 		await freshDatabase();
 		await seedStory();
 
-		// `with()` now rejects this at compile time; the cast reaches the
-		// runtime guard, which still matters for plain-JS consumers.
+		// The cast reaches the runtime guard, which plain-JS consumers still hit.
 		await expect(
 			Passage.query()
 				.with('lines.nonexistent' as 'lines')
@@ -528,7 +521,7 @@ describe('relationship assignment', () => {
 		intro!.lines = [...intro!.lines].sort((a, b) => b.sort - a.sort);
 		expect(intro!.lines[0]!.ref).toBe('intro/jump-hall');
 
-		// Crucially, it must not have become a pending attribute write.
+		// It must not have become a pending attribute write.
 		expect(intro!.getDirty()).toEqual([]);
 
 		adapter.clearLog();

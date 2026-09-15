@@ -285,17 +285,7 @@ describe('timestamps', () => {
 	});
 });
 
-/**
- * A timestamp column is a `date` column that the ORM populates itself, so the
- * casting half is covered by the `date` suite. What is specific to timestamps
- * is that the ORM owns the value — a caller-supplied one is meant to be
- * discarded.
- *
- * No application code sets these: `created_at` is when the row was written and
- * `updated_at` is when it last changed, so both are facts about the write, not
- * data the caller supplies. Every write path enforces that — insert, instance
- * update, and bulk update alike.
- */
+/** Timestamps are ORM-owned: a caller-supplied value is discarded on every write path. */
 describe('timestamps are owned by the ORM, not the caller', () => {
 	const PAST = new Date('2001-01-01T00:00:00.000Z');
 
@@ -405,9 +395,7 @@ describe('timestamps are owned by the ORM, not the caller', () => {
 		const { adapter } = await freshDatabase();
 		await seedPassage();
 
-		// Back-date the stored row, not just a local variable: otherwise the
-		// insert stamp already satisfies "later than stale" and the assertion
-		// holds even when the bulk path stamps nothing.
+		// Back-date the stored row too, or the insert stamp already satisfies the assertion.
 		const stale = Math.floor(Date.now() / 1000) - 100_000;
 		adapter.db.run(`UPDATE passages SET updated_at = ${stale}`);
 		expect((await Passage.find('intro'))!.updated_at.getTime()).toBe(
@@ -454,9 +442,7 @@ describe('timestamps are owned by the ORM, not the caller', () => {
 		const { adapter } = await freshDatabase();
 		const passage = await seedPassage();
 
-		// `Model.casts` folds the timestamp columns in as `date`, so they are
-		// seconds on disk and a Date in memory — one conversion path, not a
-		// parallel one.
+		// Timestamp columns are `date` casts: seconds on disk, a Date in memory.
 		expect(passage.created_at).toBeInstanceOf(Date);
 
 		const raw = adapter.db
@@ -468,9 +454,7 @@ describe('timestamps are owned by the ORM, not the caller', () => {
 	test('a freshly stamped model is not dirty', async () => {
 		await freshDatabase();
 
-		// The stamp is written into `_attributes` during insert, then snapshot
-		// into `_original`. A Date detached by the snapshot must compare by
-		// value, or every newly created model would read dirty.
+		// The stamp's snapshot is a detached Date, compared by value.
 		const passage = await seedPassage();
 		expect(passage.isDirty).toBe(false);
 		expect(passage.getDirty()).toEqual([]);
@@ -479,8 +463,7 @@ describe('timestamps are owned by the ORM, not the caller', () => {
 	test('the in-memory stamp matches the persisted one exactly', async () => {
 		await freshDatabase();
 
-		// `Timestamps.now()` floors to seconds precisely so these agree; a
-		// plain `new Date()` would keep milliseconds the column cannot store.
+		// `Timestamps.now()` floors to seconds, as the column stores.
 		const passage = await seedPassage();
 		const reloaded = (await Passage.find('intro'))!;
 
@@ -494,7 +477,7 @@ describe('timestamps are owned by the ORM, not the caller', () => {
 });
 
 describe('createMany', () => {
-	test('writes every row in one statement and reports the count', async () => {
+	test('writes every row in one statement and returns the models', async () => {
 		const { adapter } = await freshDatabase();
 
 		adapter.clearLog();
@@ -504,7 +487,8 @@ describe('createMany', () => {
 			{ character_ref: 'bob', tag: 'hero' },
 		]);
 
-		expect(written).toBe(3);
+		expect(written.map(tag => tag.tag)).toEqual(['hero', 'mage', 'hero']);
+		expect(written.every(tag => tag._exists && !tag.isDirty)).toBe(true);
 		expect(
 			adapter.log.filter(e => e.sql.startsWith('INSERT')),
 		).toHaveLength(1);
@@ -515,7 +499,7 @@ describe('createMany', () => {
 		const { adapter } = await freshDatabase();
 
 		adapter.clearLog();
-		expect(await CharacterTag.createMany([])).toBe(0);
+		expect(await CharacterTag.createMany([])).toEqual([]);
 		expect(adapter.log).toHaveLength(0);
 	});
 
@@ -549,7 +533,7 @@ describe('createMany', () => {
 			},
 		]);
 
-		expect(written).toBe(2);
+		expect(written).toHaveLength(2);
 		// Two shapes, so two statements rather than NULL over the default.
 		expect(
 			adapter.log.filter(e => e.sql.startsWith('INSERT')),
@@ -570,7 +554,7 @@ describe('createMany', () => {
 		}));
 
 		adapter.clearLog();
-		expect(await CharacterTag.createMany(rows)).toBe(600);
+		expect(await CharacterTag.createMany(rows)).toHaveLength(600);
 
 		const inserts = adapter.log.filter(e => e.sql.startsWith('INSERT'));
 		expect(inserts).toHaveLength(2);
@@ -588,11 +572,47 @@ describe('createMany', () => {
 		}));
 
 		adapter.clearLog();
-		expect(await CharacterTag.createMany(rows)).toBe(10_000);
+		expect(await CharacterTag.createMany(rows)).toHaveLength(10_000);
 
 		expect(
 			adapter.log.filter(e => e.sql.startsWith('INSERT')),
 		).toHaveLength(1);
+	});
+
+	test('generated keys come back through RETURNING, matched by rowid', async () => {
+		const { adapter } = await freshDatabase();
+
+		adapter.clearLog();
+		const written = await Fragment.createMany([
+			{ schema_ref: 's', owner_ref: 'alice', suffix: 'a' },
+			{ schema_ref: 's', owner_ref: 'alice', suffix: 'b' },
+			{ schema_ref: 's', owner_ref: 'alice', suffix: 'c' },
+		]);
+
+		const inserts = adapter.log.filter(e => e.sql.startsWith('INSERT'));
+		expect(inserts).toHaveLength(1);
+		expect(inserts[0]!.sql).toMatch(/ RETURNING rowid, "id"$/);
+
+		const stored = await Fragment.query().orderBy('id').get();
+		expect(written.map(f => f.id)).toEqual(stored.map(f => f.id));
+		expect(written.map(f => f.suffix)).toEqual(['a', 'b', 'c']);
+
+		// Adopted the way create() adopts, so the model can be written again.
+		written[1]!.content = 'edited';
+		await written[1]!.save();
+		expect((await Fragment.find(written[1]!.id))!.content).toBe('edited');
+	});
+
+	test('a supplied key is kept and asks for nothing back', async () => {
+		const { adapter } = await freshDatabase();
+
+		adapter.clearLog();
+		const written = await CharacterTag.createMany([
+			{ character_ref: 'alice', tag: 'hero' },
+		]);
+
+		expect(written[0]!.tag).toBe('hero');
+		expect(adapter.log[0]!.sql).not.toContain('RETURNING');
 	});
 
 	test('a limit that is not a positive integer is refused', () => {

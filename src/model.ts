@@ -29,6 +29,12 @@ import {
 import type { AnyRelations } from './relation-paths';
 import type { Patch, RelatedModel, ToManyRelationKeys } from './columns';
 import { BUILTIN_CASTS, Caster, type ColumnCast, DateCast } from './casts';
+import {
+	ModelEvents,
+	type Listener,
+	type ModelEvent,
+	type ModelHooks,
+} from './events';
 import { Timestamps } from './timestamps';
 import { RelationWriter, toManyRelation } from './relation-writer';
 import type { Transaction } from './transaction';
@@ -44,10 +50,8 @@ export interface ModelConstructor<TModel extends Model<TModel>> {
 }
 
 /**
- * `this` type for Model's statics.
- *
- * TModel must stay inferable only from `new (): TModel`. A generic member here
- * adds a second inference site and collapses TModel to `Model<any>`.
+ * `this` type for Model's statics. No generic member: a second inference site
+ * collapses TModel to `Model<any>`.
  */
 export interface ModelStatic<TModel extends Model<TModel>> {
 	new (): TModel;
@@ -55,6 +59,7 @@ export interface ModelStatic<TModel extends Model<TModel>> {
 	config: ModelConfig;
 	readonly casts: Caster;
 	readonly timestamps: Timestamps;
+	readonly events: ModelEvents<any>;
 	getTableName(): string;
 }
 
@@ -135,29 +140,37 @@ export abstract class Model<T extends Model<T>> {
 		return Model._castsCache.get(this)!;
 	}
 
+	/** Declared by a subclass: housekeeping that runs inside its writes. */
+	static readonly hooks?: ModelHooks<any>;
+
+	private static _eventsCache = new WeakMap<typeof Model, ModelEvents<any>>();
+
+	/** The model's hooks and listeners, resolved once per class. */
+	static get events(): ModelEvents<any> {
+		if (!Model._eventsCache.has(this)) {
+			Model._eventsCache.set(this, new ModelEvents(this, this.hooks));
+		}
+		return Model._eventsCache.get(this)!;
+	}
+
+	/** Runs after a write of this model commits. Returns the unsubscribe. */
+	static on<T extends Model<T>>(
+		this: ModelStatic<T>,
+		event: ModelEvent,
+		listener: Listener<T>,
+	): () => void {
+		return (this.events as ModelEvents<T>).on(event, listener);
+	}
+
 	/**
-	 * @internal Phantom nominal marker. `declare` emits nothing, so no instance
-	 * ever carries it at runtime.
-	 *
-	 * `ColumnKeys` uses this to recognise a relation. The obvious structural
-	 * test — `V extends Model<any>` — would compare every member including
-	 * `fill`, whose parameter type is itself derived from `ColumnKeys`; two
-	 * models that reference each other then make that check circular. Matching
-	 * one marker property instead terminates immediately.
+	 * @internal Phantom marker `ColumnKeys` matches to recognise a relation; a
+	 * structural check is circular through `fill`. `declare` emits nothing.
 	 */
 	declare readonly __model: true;
 
-	// Deliberately no instance-level `relationships` field: every caller goes
-	// through `this.constructor.relationships`, the static. An instance-level
-	// field would be an own property sitting below the proxy's `set` trap
-	// (which walks only the prototype chain), so it would be fillable and
-	// would shadow the static under `get`.
+	// No instance-level `relationships`: an own property would be fillable and shadow the static.
 
-	/**
-	 * Wraps the instance in a Proxy so columns and relations read as plain
-	 * properties. `_`-prefixed state is declared on ModelState and initialised
-	 * here; declaring it on both sides would not merge.
-	 */
+	/** Wraps the instance in a Proxy so columns and relations read as plain properties. */
 	constructor() {
 		this._attributes = {};
 		this._original = {};
@@ -223,10 +236,7 @@ export abstract class Model<T extends Model<T>> {
 					return true;
 				}
 
-				// Shared with `assertWritableColumn`, which reports on a write
-				// this trap would refuse. The two must agree on what counts as
-				// a declaration, so they resolve it the same way rather than
-				// each walking the chain themselves.
+				// Resolved as `assertWritableColumn` resolves it, so the two agree.
 				const descriptor = findDeclaration(target, prop);
 
 				if (descriptor) {
@@ -313,6 +323,11 @@ export abstract class Model<T extends Model<T>> {
 		return (this.constructor as typeof Model).casts;
 	}
 
+	/** @internal Public for the mixins' benefit. */
+	getEvents(): ModelEvents<any> {
+		return (this.constructor as typeof Model).events;
+	}
+
 	private static _tableNameCache = new WeakMap<typeof Model, string>();
 
 	/** Interpolated into SQL, not bound, so it is validated like any identifier. */
@@ -345,10 +360,7 @@ export abstract class Model<T extends Model<T>> {
 			.replace(/^-+|-+$/g, '');
 	}
 
-	/**
-	 * `this: ModelStatic<T>` binds T to the subclass the static is called on,
-	 * so `User.find()` returns `User | null`. Erased at runtime.
-	 */
+	/** `this: ModelStatic<T>` binds T to the calling subclass. */
 	static query<T extends Model<T>, R = AnyRelations>(
 		this: ModelStatic<T> & { readonly relationships?: R },
 	): QueryBuilder<T, R> {
@@ -395,11 +407,7 @@ export abstract class Model<T extends Model<T>> {
 		return new QueryBuilder<T>(this, this.getTableName()).get();
 	}
 
-	/**
-	 * `NoInfer` keeps `data` from acting as a second inference site: `T` must
-	 * come from `this` alone, or a mapped type over it collapses `T` to
-	 * `Model<any>` and the column check erases itself.
-	 */
+	/** `NoInfer`: `T` comes from `this` alone, or the column check collapses to `Model<any>`. */
 	static async create<T extends Model<T>>(
 		this: ModelStatic<T>,
 		data: NoInfer<Patch<T>>,
@@ -412,12 +420,12 @@ export abstract class Model<T extends Model<T>> {
 		return model;
 	}
 
-	/** How many rows were written; a multi-row INSERT yields no per-row keys. */
+	/** The written models, each carrying its key, in the order given. */
 	static async createMany<T extends Model<T>>(
 		this: ModelStatic<T>,
 		rows: NoInfer<Patch<T>>[],
 		tx?: Transaction,
-	): Promise<number> {
+	): Promise<T[]> {
 		return new BulkWriter(this).insert(rows, tx);
 	}
 
@@ -490,19 +498,7 @@ export abstract class Model<T extends Model<T>> {
 		return new MorphTo(this, config);
 	}
 
-	/**
-	 * Bulk-assign columns, honouring `fillable`/`guarded`.
-	 *
-	 * The parameter type is derived from the class's own field declarations, so
-	 * relations, computed properties and unknown keys are rejected at compile
-	 * time without the author maintaining a second list.
-	 *
-	 * `fillable`/`guarded` remain the *runtime* guard, for data that arrives
-	 * untyped — a request body, an import file, `JSON.parse`. Unlike
-	 * `Object.assign`, this never writes an ORM-internal (`_`-prefixed) key, so
-	 * such a payload cannot corrupt persistence state. A model declaring neither
-	 * still accepts every column, so set one before filling from user input.
-	 */
+	/** Bulk-assigns columns, honouring `fillable`/`guarded`; never writes a `_`-prefixed key. */
 	fill(data: Patch<T>): this {
 		const ModelClass = this.constructor as typeof Model;
 		const { fillable, guarded } = ModelClass.config;
@@ -521,8 +517,7 @@ export abstract class Model<T extends Model<T>> {
 				continue;
 			}
 
-			// Typed callers cannot reach this, but untyped ones can, and the
-			// proxy's own refusal is an unlabelled TypeError.
+			// The proxy's own refusal is an unlabelled TypeError.
 			assertWritableColumn(this, key);
 
 			(this as Record<string, unknown>)[key] = value;

@@ -1,9 +1,4 @@
 /**
- * 7otion ORM - Database-Agnostic TypeScript ORM
- *
- * A modern, type-safe ORM with Active Record pattern, designed to work
- * with any database through pluggable adapters and dialects.
- *
  * @author Burak Kartal
  * @license MIT
  */
@@ -13,7 +8,19 @@ export type { ColumnKeys, Columns, Patch } from './columns';
 export type { RelationPath } from './relation-paths';
 export type { LoadableRelation } from './relationships/relationship';
 export { ORM, type ORMConfig } from './orm';
-export { Transaction } from './transaction';
+export {
+	Transaction,
+	ListenerError,
+	type ListenerFailure,
+} from './transaction';
+export {
+	EventBatch,
+	ModelEvents,
+	type Hook,
+	type Listener,
+	type ModelEvent,
+	type ModelHooks,
+} from './events';
 export type { DatabaseAdapter, TransactionalAdapter } from './adapter';
 export type { SqlDialect } from './dialect';
 export { QueryBuilder } from './query-builder';

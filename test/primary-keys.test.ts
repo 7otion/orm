@@ -1,9 +1,4 @@
-/**
- * Primary key adoption on INSERT.
- *
- * The rule under test: adopt the database-generated key ONLY when the caller
- * supplied no value for a single-column primary key. Never for composite keys.
- */
+/** Primary key adoption: only when the caller supplied none, never for composite keys. */
 
 import { describe, expect, test } from 'bun:test';
 

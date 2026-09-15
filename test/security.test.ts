@@ -1,10 +1,4 @@
-/**
- * Regression tests for the identifier-injection and mass-assignment findings.
- *
- * Values were always bound; these cover the parts that are interpolated into
- * SQL (column and table names) and the paths that write model state from a
- * caller-supplied object.
- */
+/** Identifier injection and mass assignment: what is interpolated into SQL, and what writes model state. */
 
 import { describe, expect, test } from 'bun:test';
 
@@ -13,12 +7,8 @@ import { Passage, User } from './helpers/models';
 import { freshDatabase } from './helpers/setup';
 
 /**
- * These identifiers are now rejected twice: `ColumnRef` refuses them at compile
- * time, and `assertIdentifier` refuses them at runtime. The `@ts-expect-error`
- * on each call *is* the first assertion — delete one and the compiler reports
- * an unused directive. The runtime assertion still has to hold, because typed
- * callers are not the only callers: `any` from `JSON.parse`, a plain-JS
- * consumer, or a cast all reach the same method.
+ * Rejected by `ColumnRef` at compile time and by `assertIdentifier` at runtime,
+ * for untyped callers. The `@ts-expect-error` directives are assertions.
  */
 describe('identifier injection', () => {
 	test('where() rejects a column that is not a plain name', async () => {

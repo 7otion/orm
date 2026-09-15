@@ -1,10 +1,6 @@
 /**
- * Test adapters over `bun:sqlite`, deliberately matching TauriAdapter's
- * observable semantics: insert() returns lastInsertRowid, execute() returns
- * rows affected, and `undefined` bindings become NULL (Tauri serialises bind
- * values as JSON, so undefined arrives as null).
- *
- * Records every statement, so tests can assert on the SQL actually issued.
+ * Test adapters over `bun:sqlite`, matching TauriAdapter's semantics: `undefined`
+ * bindings become NULL. Every statement is recorded.
  */
 
 import { Database } from 'bun:sqlite';

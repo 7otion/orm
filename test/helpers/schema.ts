@@ -1,8 +1,4 @@
-/**
- * Schema backing the model fixtures. The mix of key styles — TEXT, UUID,
- * AUTOINCREMENT and composite — is the point: it exercises primary key
- * adoption across every case, not just the default.
- */
+/** Schema backing the model fixtures; mixes TEXT, UUID, AUTOINCREMENT and composite keys. */
 
 export const SCHEMA = /* sql */ `
 CREATE TABLE files (

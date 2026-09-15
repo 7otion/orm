@@ -1,6 +1,7 @@
 /** Reconciles the set of rows on the far side of a to-many relation. */
 
 import { BulkWriter } from './bulk-writer';
+import { WRITE_EVENTS } from './events';
 import { ORM } from './orm';
 import { HasMany } from './relationships/hasMany';
 import { MorphMany } from './relationships/morphMany';
@@ -39,7 +40,7 @@ type ToMany<T extends Model<T>> = HasMany<T> | MorphMany<T>;
 /** The statics this writer calls, which `ModelStatic` deliberately omits. */
 type WritableClass<T extends Model<T>> = ModelStatic<T> & {
 	query(): QueryBuilder<T>;
-	createMany(rows: DatabaseRow[], tx?: Transaction): Promise<number>;
+	createMany(rows: DatabaseRow[], tx?: Transaction): Promise<T[]>;
 	updateMany(models: T[], tx?: Transaction): Promise<T[]>;
 };
 
@@ -51,10 +52,8 @@ export class RelationWriter<T extends Model<T>> {
 	) {}
 
 	/**
-	 * Makes the far side hold exactly these rows: missing ones are created,
-	 * absent ones deleted, and matched ones updated where they differ. Rows that
-	 * are already right are left alone. One transaction when that takes several
-	 * statements.
+	 * Makes the far side hold exactly these rows, by difference: creates, deletes
+	 * and updates, in one transaction when that takes several statements.
 	 */
 	async sync(
 		members: RelationMember[],
@@ -100,13 +99,13 @@ export class RelationWriter<T extends Model<T>> {
 				);
 
 				const writer = new BulkWriter(this.related());
-				await orm.ensureAtomic(
-					handle,
-					(remove.length > 0 ? 1 : 0) +
+				// Hooks may write, so with them the count is unknowable.
+				const statements = this.related().events.hasHooks(WRITE_EVENTS)
+					? Infinity
+					: (remove.length > 0 ? 1 : 0) +
 						writer.insertStatementCount(create as Patch<T>[]) +
-						writer.updateStatementCount(update),
-					label,
-				);
+						writer.updateStatementCount(update);
+				await orm.ensureAtomic(handle, statements, label);
 
 				if (remove.length > 0) {
 					await this.matching(

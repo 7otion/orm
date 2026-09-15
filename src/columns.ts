@@ -1,41 +1,15 @@
-/**
- * Derives a model's column set from the class declaration itself.
- *
- * A model already states its columns as field declarations:
- *
- * ```ts
- * class Line extends Model<Line> {
- *   ref!: string;
- *   text!: string | null;
- *   routes!: Route[];          // relation, not a column
- *   get summary(): string { … } // computed, not a column
- * }
- * ```
- *
- * Everything bulk assignment needs is already there, so nothing here asks the
- * author to repeat it in a second list. `fillable`/`guarded` stay as *runtime*
- * guards for untrusted input, where types have already been erased.
- */
+/** Derives a model's column set from its field declarations. */
 
 import type { Model } from './model';
 import type { WhereValue } from './types';
 
-/**
- * Identical-type test, sensitive to modifiers.
- *
- * Two conditional types are mutually assignable only when their checked types
- * are identical, which — unlike `extends` — makes `readonly` observable.
- */
+/** Identical-type test; unlike `extends`, it observes `readonly`. */
 type IfEquals<X, Y, A, B> =
 	(<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B;
 
 /**
- * Keys that are assignable, i.e. not `readonly`.
- *
- * This is what separates a column from a computed property: TypeScript models
- * a get-only accessor as `readonly`, so `get summary()` is dropped while a
- * plain `text!: string | null` is kept. An accessor *with* a setter stays,
- * which is correct — it is writable.
+ * Keys that are not `readonly`. A get-only accessor is readonly, so computed
+ * properties drop out; an accessor with a setter stays.
  */
 type WritableKeys<T> = {
 	[K in keyof T]-?: IfEquals<
@@ -47,12 +21,8 @@ type WritableKeys<T> = {
 }[keyof T];
 
 /**
- * Relations are model-typed; columns are scalars.
- *
- * Matched on `Model`'s phantom marker rather than on `Model<any>` itself: a
- * full structural comparison would include `fill`, whose parameter type comes
- * from `ColumnKeys`, and any two models that reference each other would make
- * that circular.
+ * Matched on `Model`'s phantom marker; a structural check against `Model<any>`
+ * is circular through `fill`.
  */
 type ModelMarker = { readonly __model: true };
 
@@ -63,14 +33,8 @@ type IsRelationValue<V> = [NonNullable<V>] extends [ModelMarker]
 		: false;
 
 /**
- * The column names of a model.
- *
- * Excluded: computed properties (`readonly`), relations (model-typed), methods,
- * every member `Model` itself contributes, and ORM-internal `_` keys.
- *
- * A model with an index signature degrades to `string`, so loosely typed models
- * keep working rather than becoming unwritable — the same concession
- * `RelationPath` makes.
+ * A model's column names: writable, scalar, not `Model`'s own, not `_`-prefixed.
+ * An index signature degrades it to `string`.
  */
 export type ColumnKeys<T> = Exclude<
 	{
@@ -84,10 +48,7 @@ export type ColumnKeys<T> = Exclude<
 > &
 	string;
 
-/**
- * Relations holding many rows — the ones with a set `relation()` can write.
- * To-one relations are excluded: they have no set, only a value to assign.
- */
+/** Relations holding many rows; to-one relations have no set to write. */
 export type ToManyRelationKeys<T> = Exclude<
 	{
 		[K in keyof T]-?: [NonNullable<T[K]>] extends [readonly ModelMarker[]]
@@ -105,39 +66,24 @@ export type RelatedModel<T, K extends keyof T> =
 /** A model's columns, as a plain object type. */
 export type Columns<T> = { [K in ColumnKeys<T>]: T[K] };
 
-/**
- * A partial column set — the shape `fill`, `create` and `update` accept.
- *
- * Every column is optional: the database supplies defaults, autoincrement keys
- * and timestamps, so requiring them would reject correct calls.
- */
+/** A partial column set, the shape `fill`, `create` and `update` accept. */
 export type Patch<T> = Partial<Columns<T>>;
 
-/**
- * A `table.column` reference.
- *
- * Joins compare against tables the model type knows nothing about, so these
- * cannot be checked statically. They stay identifier-validated at runtime.
- */
+/** A `table.column` reference, checked only at runtime. */
 type QualifiedColumn = `${string}.${string}`;
 
 /** A column of `T`, or a qualified reference to another table's column. */
 export type ColumnRef<T> = ColumnKeys<T> | QualifiedColumn;
 
 /**
- * The value a comparison against `K` accepts.
- *
- * A known column narrows to its declared type, so `where('sort', 'abc')` is an
- * error; a qualified reference falls back to any bindable value.
+ * The value a comparison against `K` accepts: a known column's declared type,
+ * or any bindable value for a qualified reference.
  */
 export type ValueFor<T, K> = K extends ColumnKeys<T> ? T[K] : WhereValue;
 
 /**
- * The value a comparison against `K` accepts under a given operator.
- *
- * The operator changes the shape, not just the type: `IN` takes a list of what
- * the column holds, `IS`/`IS NOT` only ever compare against null, and every
- * other operator takes a single value of the column's own type.
+ * `IN` and `NOT IN` take a list of the column's type, `IS` and `IS NOT` only
+ * `null`, every other operator a single value.
  */
 export type ValueForOperator<T, K, Op> = Op extends 'IN' | 'NOT IN'
 	? ValueFor<T, K>[]

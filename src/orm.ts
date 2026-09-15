@@ -6,6 +6,7 @@
 import type { DatabaseAdapter, TransactionalAdapter } from './adapter';
 import type { SqlDialect } from './dialect';
 import {
+	ListenerError,
 	Transaction,
 	calledFromTransactionBody,
 	ormTransactionBody,
@@ -133,9 +134,36 @@ export class ORM {
 			throw this.missingHandle(label);
 		}
 
-		// Queued like any write, so it runs after whatever is already pending
-		// and everything issued later runs after it.
-		return this.enqueue(() => this.runUnit(work, label), label);
+		const unit = new Transaction();
+
+		const result = await this.enqueue(
+			() => this.runUnit(unit, work, label),
+			label,
+		);
+
+		// The queue is released, so a listener's own write cannot wait on itself.
+		const failures = await unit.notify();
+		if (failures.length > 0) {
+			throw new ListenerError(result, failures);
+		}
+
+		return result;
+	}
+
+	/**
+	 * Begins the unit before a hook can write. Without transactions the unit
+	 * still runs, but a nested write into it is refused.
+	 */
+	async beginForHooks(unit: Transaction, label: string): Promise<void> {
+		if (unit.hasBegun()) return;
+
+		if (!this.transactions) {
+			unit.refuseNestedWrites(label);
+			return;
+		}
+
+		await this.transactions.beginTransaction();
+		unit.markBegun();
 	}
 
 	/**
@@ -158,9 +186,8 @@ export class ORM {
 	}
 
 	/**
-	 * Serialises a write behind any already in flight. A write carrying the open
-	 * unit's handle runs immediately: it is that unit, and queuing it would make
-	 * the unit wait on itself. Reads are never queued.
+	 * Serialises a write behind any in flight. One carrying the open unit's handle
+	 * runs immediately; reads are never queued.
 	 */
 	async queueWrite<T>(
 		operation: () => Promise<T>,
@@ -177,6 +204,10 @@ export class ORM {
 			if (tx.wasRolledBackByDatabase()) {
 				throw this.rolledBackByDatabase(label ?? 'This write');
 			}
+			const refusedBy = tx.nestedWritesRefusedBy();
+			if (refusedBy) {
+				throw this.hookWriteUnsupported(refusedBy, label);
+			}
 			if (!tx.hasBegun()) {
 				return operation();
 			}
@@ -190,8 +221,6 @@ export class ORM {
 		}
 
 		if (this.active) {
-			// Reading the stack is affordable here: only an untokened write
-			// during a unit reaches it.
 			if (calledFromTransactionBody()) {
 				throw this.missingHandle(label);
 			}
@@ -207,10 +236,10 @@ export class ORM {
 
 	/** Must be called from the book: the unit is its own entry. */
 	private async runUnit<T>(
+		unit: Transaction,
 		work: (unit: Transaction) => Promise<T>,
 		label: string,
 	): Promise<T> {
-		const unit = new Transaction();
 		// Set before any statement, so a write issued meanwhile is held.
 		this.active = unit;
 
@@ -274,12 +303,28 @@ export class ORM {
 	private unsupported(label: string, statements?: number): Error {
 		const adapter = this.adapter.constructor?.name ?? 'The adapter';
 
+		if (statements === undefined) {
+			return new Error(
+				`[orm] ${label} needs a transaction, and ${adapter} does not implement TransactionalAdapter.`,
+			);
+		}
+
+		// Infinity: hooks may write, so the count is unknowable.
+		const count = Number.isFinite(statements) ? statements : 'several';
+
 		return new Error(
-			statements === undefined
-				? `[orm] ${label} needs a transaction, and ${adapter} does not implement TransactionalAdapter.`
-				: `[orm] ${label} needs ${statements} statements to land together, and ${adapter} does not ` +
-						`implement TransactionalAdapter. Split the work into calls that each fit one statement, ` +
-						`or use an adapter that supports transactions.`,
+			`[orm] ${label} needs ${count} statements to land together, and ${adapter} does not ` +
+				`implement TransactionalAdapter. Split the work into calls that each fit one statement, ` +
+				`or use an adapter that supports transactions.`,
+		);
+	}
+
+	private hookWriteUnsupported(hookedWrite: string, label?: string): Error {
+		const adapter = this.adapter.constructor?.name ?? 'The adapter';
+
+		return new Error(
+			`[orm] ${label ?? 'A write'} was issued by a hook of ${hookedWrite}, which needs a ` +
+				`transaction to land with it, and ${adapter} does not implement TransactionalAdapter.`,
 		);
 	}
 
