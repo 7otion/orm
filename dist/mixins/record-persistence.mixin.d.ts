@@ -7,6 +7,8 @@ export declare class RecordPersistenceMixin extends ModelState {
      * `_attributes` while the row still carries the original.
      */
     private storedKey;
+    /** The stored key as one string, for the unit's delete ledger. */
+    private keySignature;
     save(tx?: Transaction): Promise<this>;
     /** Names this model in a held-write warning or a missing-handle error. */
     private writeLabel;

@@ -26,10 +26,8 @@ export declare class RelationWriter<T extends Model<T>> {
     private readonly relation;
     constructor(parent: Model<any>, name: string, relation: ToMany<T>);
     /**
-     * Makes the far side hold exactly these rows: missing ones are created,
-     * absent ones deleted, and matched ones updated where they differ. Rows that
-     * are already right are left alone. One transaction when that takes several
-     * statements.
+     * Makes the far side hold exactly these rows, by difference: creates, deletes
+     * and updates, in one transaction when that takes several statements.
      */
     sync(members: RelationMember[], options?: RelationWriteOptions, tx?: Transaction): Promise<SyncResult>;
     private related;

@@ -15,12 +15,8 @@ export declare class QueryBuilder<T extends Model<T>, TRelations = AnyRelations,
     private constraintApplied;
     constructor(modelClass: ModelStatic<T>, tableName: string);
     /**
-     * `where(col, value)` or `where(col, operator, value)`.
-     *
-     * Split into two overloads rather than one `WhereOperator | QueryValue`
-     * parameter: that union absorbs into `string`, which lets any nonsense
-     * operator through. Separating them also lets the two-argument form check
-     * the value against the column's declared type.
+     * `where(col, value)` or `where(col, operator, value)`. Two overloads, so the
+     * operator stays a union rather than absorbing into `string`.
      */
     where<K extends ColumnRef<T>>(column: K, value: ValueFor<T, K>): this;
     where<K extends ColumnRef<T>, Op extends WhereOperator>(column: K, operator: Op, value: ValueForOperator<T, K, Op>): this;
@@ -45,9 +41,8 @@ export declare class QueryBuilder<T extends Model<T>, TRelations = AnyRelations,
     whereIn<K extends ColumnRef<T>>(column: K, values: ValueFor<T, K>[]): this;
     orWhereIn<K extends ColumnRef<T>>(column: K, values: ValueFor<T, K>[]): this;
     /**
-     * Caller values reach the driver in the column's stored shape, as writes do.
-     * A qualified name belongs to another table, whose casts are not this
-     * model's to apply.
+     * Values reach the driver in the column's stored shape. A qualified name
+     * belongs to another table, whose casts do not apply.
      */
     private stored;
     private basicCondition;
@@ -85,18 +80,11 @@ export declare class QueryBuilder<T extends Model<T>, TRelations = AnyRelations,
     orHavingRaw(sql: string, bindings?: QueryValue[]): this;
     /** Rows exactly as the adapter returned them; nothing is hydrated. */
     aggregate<R = DatabaseRow>(): Promise<R[]>;
-    /**
-     * Eager load relations, including nested dotted paths. Names are checked
-     * against the model's `relationships` literal; models without one accept
-     * any string.
-     */
+    /** Eager loads relations, including dotted paths, checked against the `relationships` literal. */
     with(this: QueryBuilder<T, TRelations, false>, ...relations: RelationPath<TRelations>[]): QueryBuilder<T, TRelations, false>;
     setRelationshipConstraint(constraint: (query: QueryBuilder<T, TRelations>) => void): this;
     private applyRelationshipConstraint;
-    /**
-     * An independent copy, for branching one base query into several. Chained
-     * methods mutate the builder they are called on, as they do everywhere else.
-     */
+    /** An independent copy, for branching one base query into several. */
     clone(): QueryBuilder<T, TRelations, Grouped>;
     /** Reachable only through a cast, or from JavaScript. */
     private assertUngrouped;
@@ -124,6 +112,7 @@ export declare class QueryBuilder<T extends Model<T>, TRelations = AnyRelations,
     }>;
     /** Deletes matching rows in one queued statement, returning the count. */
     delete(this: QueryBuilder<T, TRelations, false>, tx?: Transaction): Promise<number>;
+    private keyOf;
     /** Updates matching rows in one queued statement, returning the count. */
     update(this: QueryBuilder<T, TRelations, false>, data: Patch<T>, tx?: Transaction): Promise<number>;
     private hydrate;

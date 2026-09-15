@@ -22,15 +22,9 @@ export declare class Caster {
     toDatabaseValues(values: DatabaseRow): DatabaseRow;
     /** One value in its stored shape. Uncast columns and nullish values pass through. */
     toStored(column: string, value: unknown): unknown;
-    /**
-     * A snapshot for `_original`. Object values are cloned, so an in-place edit
-     * of the live attribute does not also mutate what it is compared against.
-     */
+    /** A snapshot for `_original`; object values are cloned. */
     snapshot(attributes: DatabaseRow): DatabaseRow;
-    /**
-     * Whether a column changed. Object values compare by value, since
-     * `snapshot` gave them a separate instance.
-     */
+    /** Whether a column changed; object values compare by value. */
     changed(column: string, current: unknown, original: unknown): boolean;
 }
 export { BooleanCast, DateCast, EmptyToNullCast, JsonCast };

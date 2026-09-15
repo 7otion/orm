@@ -42,14 +42,18 @@ export declare class ORM {
      */
     queueUnit<T>(work: (unit: Transaction) => Promise<T>, tx?: Transaction, label?: string): Promise<T>;
     /**
+     * Begins the unit before a hook can write. Without transactions the unit
+     * still runs, but a nested write into it is refused.
+     */
+    beginForHooks(unit: Transaction, label: string): Promise<void>;
+    /**
      * Issues BEGIN for a unit whose work spans several statements. Must be called
      * before the unit's first write; refuses on an adapter without transactions.
      */
     ensureAtomic(unit: Transaction, statements: number, label: string): Promise<void>;
     /**
-     * Serialises a write behind any already in flight. A write carrying the open
-     * unit's handle runs immediately: it is that unit, and queuing it would make
-     * the unit wait on itself. Reads are never queued.
+     * Serialises a write behind any in flight. One carrying the open unit's handle
+     * runs immediately; reads are never queued.
      */
     queueWrite<T>(operation: () => Promise<T>, tx?: Transaction, label?: string): Promise<T>;
     /** Must be called from the book: the unit is its own entry. */
@@ -62,6 +66,7 @@ export declare class ORM {
     private rolledBackByDatabase;
     /** `statements` is omitted when the work cannot be counted, as with `transaction()`. */
     private unsupported;
+    private hookWriteUnsupported;
     /** Appends to the book, warning if a unit holds it up for too long. */
     private enqueue;
     private warnIfHeld;

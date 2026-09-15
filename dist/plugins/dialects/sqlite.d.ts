@@ -10,11 +10,8 @@ export declare class SQLiteDialect implements SqlDialect {
     readonly maxBindParameters: number;
     constructor(options?: SQLiteDialectOptions);
     /**
-     * SQLite has no boolean type, and a driver handed a raw `true` will not
-     * necessarily store 0/1 — tauri-plugin-sql, for one, binds it as the JSON
-     * text `"true"`, which no `= 1` comparison ever matches. The last step
-     * before the driver, so it also covers raw bindings, which carry no column
-     * name for a cast to key off.
+     * Booleans become 0/1: tauri-plugin-sql binds a raw `true` as the text `"true"`.
+     * The last step before the driver, so raw bindings are covered too.
      */
     private compiled;
     compileSelect(query: QueryStructure): CompiledQuery;
@@ -23,14 +20,13 @@ export declare class SQLiteDialect implements SqlDialect {
     /** SQLite's grammar is LIMIT expr [OFFSET expr]; -1 is its no-limit sentinel. */
     private compileLimit;
     /**
-     * UPDATE and DELETE take no join, limit or offset of their own, so anything
-     * beyond a plain WHERE is expressed as the set of rows a SELECT would match.
-     * Rowid tables only; a WITHOUT ROWID table has no such column.
+     * UPDATE and DELETE take no join, limit or offset, so those are expressed as
+     * the rows a SELECT matches. Rowid tables only.
      */
     private rowidFilter;
     private needsRowidFilter;
     compileInsert(table: string, data: Record<string, QueryValue>): CompiledQuery;
-    compileInsertMany(table: string, rows: Record<string, QueryValue>[]): CompiledQuery;
+    compileInsertMany(table: string, rows: Record<string, QueryValue>[], returning?: string[]): CompiledQuery;
     compileUpdateMany(table: string, rows: Record<string, QueryValue>[], keyColumns: string[], set: Record<string, QueryValue>): CompiledQuery;
     compileUpdate(table: string, data: Record<string, QueryValue>, primaryKey: string | string[], id: QueryValue | QueryValue[]): CompiledQuery;
     compileDelete(table: string, primaryKey: string | string[], id: QueryValue | QueryValue[]): CompiledQuery;

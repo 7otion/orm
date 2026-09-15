@@ -6,8 +6,11 @@ import type { AggregateFunction, CompiledQuery, QueryStructure, QueryValue } fro
 export interface SqlDialect {
     compileSelect(query: QueryStructure): CompiledQuery;
     compileInsert(table: string, data: Record<string, QueryValue>): CompiledQuery;
-    /** Every row must carry the same columns; the caller chunks to the limit. */
-    compileInsertMany(table: string, rows: Record<string, QueryValue>[]): CompiledQuery;
+    /**
+     * Every row carries the same columns; the caller chunks to the limit. With
+     * `returning`, yields one row per insert holding `rowid` and those columns.
+     */
+    compileInsertMany(table: string, rows: Record<string, QueryValue>[], returning?: string[]): CompiledQuery;
     /**
      * Each row supplies its own values, matched on `keyColumns`. `set` holds
      * columns taking one value across every row.
@@ -18,21 +21,14 @@ export interface SqlDialect {
     compileUpdate(table: string, data: Record<string, QueryValue>, primaryKey: string | string[], id: QueryValue | QueryValue[]): CompiledQuery;
     /** Single-row delete by primary key, used by `model.delete()`. */
     compileDelete(table: string, primaryKey: string | string[], id: QueryValue | QueryValue[]): CompiledQuery;
-    /**
-     * For `QueryBuilder.delete()`. Must support everything compileSelect does.
-     * Only needed if consumers use the builder's `.delete()`.
-     */
+    /** For `QueryBuilder.delete()`; must support everything `compileSelect` does. */
     compileDeleteQuery(query: QueryStructure): CompiledQuery;
-    /**
-     * For `QueryBuilder.update()`. Unlike compileDeleteQuery it need not handle
-     * joins, which SQLite's UPDATE does not support.
-     */
+    /** For `QueryBuilder.update()`; joins need not be handled. */
     compileUpdateQuery(query: QueryStructure, data: Record<string, QueryValue>): CompiledQuery;
     compileCount(query: QueryStructure): CompiledQuery;
     /**
-     * One aggregate over one column, returned as `aggregate`. Optional: a
-     * dialect without it reports so when `sum`/`avg`/`min`/`max` is called.
-     * Limit, offset and order do not apply, as they do not for `compileCount`.
+     * One aggregate over one column, returned as `aggregate`; limit, offset and
+     * order do not apply. Optional.
      */
     compileAggregate?(query: QueryStructure, fn: AggregateFunction, column: string): CompiledQuery;
 }
